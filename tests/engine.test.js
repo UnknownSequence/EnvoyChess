@@ -15,14 +15,16 @@ function rulesWith(changes) {                     // copy of js/rules.js with so
 }
 // Envoy-mechanics tests below use positions where captures are available or few
 // pieces are left, so they run with compulsory capture and the king+envoy loss
-// rule switched off (and the envoy's power cap / diplomatic distance too).
+// rule switched off (and the envoy's diplomatic distance too).
 // Those rules have their own tests at the end.
 // They also use the original movement tiers (rook / knight-or-bishop); the
 // current king-step tiers have their own tests at the end.
 var OLD_TIERS = [
   { minDeficit: 12, movement: 'amazon' }, { minDeficit: 9, movement: 'queen' }, { minDeficit: 5, movement: 'rook' },
   { minDeficit: 3, movement: 'choice', options: ['knight', 'bishop'] }, { minDeficit: -Infinity, movement: 'king' }];
-var E = E0.create(rulesWith({ startFEN: 'rneqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNEQKBNR w KQkq - 0 1', envoyDrop: { enabled: false, ranks: { w: [], b: [] } }, forcedCapture: false, loseWithOnly: null, sacrifice: { enabled: false, pieces: [] }, envoy: { powerCap: null, minKingDistance: null, cooldownTurns: 1, chooseBy: 'turn', tiers: OLD_TIERS } }));
+var E = E0.create(rulesWith({ startFEN: 'rneqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNEQKBNR w KQkq - 0 1', envoyDrop: { enabled: false, ranks: { w: [], b: [] } }, forcedCapture: false, loseWithOnly: null, sacrifice: { enabled: false, pieces: [] }, envoy: { powerCap: null, minKingDistance: null, givesCheck: true, cooldownTurns: 1, chooseBy: 'turn', tiers: OLD_TIERS } }));
+var E0x = E0.create(rulesWith({ envoy: { ownSacrificesPower: false } }));   // the "sacrifices don't count" option
+var Edist = E0.create(rulesWith({ envoy: { minKingDistance: 3 } }));            // the old diplomatic distance
 var passed = 0, failed = 0;
 
 function test(name, fn) {
@@ -264,40 +266,48 @@ test("'whenArmed': an armed envoy gives check", function () {
 });
 
 // ---------------------------------------------------------------- compulsory captures, sacrifice, running out of pieces, envoy limits
+test('captures are optional by default, even a pawn taking a knight', function () {
+  var st = E0.fromFEN('4k3/8/8/3n4/4P3/1N6/7K/r7 w - - 0 1');
+  ok(E0.legalMoves(st).some(function (m) { return !m.captured && !m.sacrifice; }), 'quiet moves must be allowed');
+  ok(E0.legalMoves(st).some(function (m) { return m.sacrifice; }), 'sacrifices too');
+  ok(!new E0.Game('4k3/8/8/3n4/4P3/1N6/7K/r7 w - - 0 1').status().mustCapture);
+});
+// the old "weaker takes stronger" rule can still be switched on in rules.js (forcedCapture: 'upward')
+var Eup = E0.create(rulesWith({ forcedCapture: 'upward' }));
 test('equal trades are optional (pawn takes pawn)', function () {
-  var g = new E0.Game();
+  var g = new Eup.Game();
   play0(g, ['a3a3', 'h6h6', 'e2e4', 'd7d5']);
   ok(g.legalMoves().some(function (m) { return !m.captured; }), 'quiet moves must be allowed');
 });
 
 test('a weaker piece that can take a stronger one must take (any such capture)', function () {
-  var st = E0.fromFEN('4k3/8/8/3n4/4P3/1N6/7K/r7 w - - 0 1'); // exd5 (P takes N), Nxa1 (N takes R)
-  var ms = E0.legalMoves(st).map(function (m) { return E0.san(st, m); }).sort();
+  var st = Eup.fromFEN('4k3/8/8/3n4/4P3/1N6/7K/r7 w - - 0 1'); // exd5 (P takes N), Nxa1 (N takes R)
+  var ms = Eup.legalMoves(st).map(function (m) { return Eup.san(st, m); }).sort();
   eq(ms.join(','), 'Nxa1,exd5');
 });
 
 test('downward captures are optional', function () {
-  var st = E0.fromFEN('4k3/8/8/3p4/8/8/8/3QK3 w - - 0 1'); // Qxd5 only
-  ok(E0.legalMoves(st).length > 1);
+  var st = Eup.fromFEN('4k3/8/8/3p4/8/8/8/3QK3 w - - 0 1'); // Qxd5 only
+  ok(Eup.legalMoves(st).length > 1);
 });
 
 test('compulsory capture does not apply while in check', function () {
   // white king e1 in check from rook e8; Nxa5 is a capture but blocking/moving is allowed too
-  var st = E0.fromFEN('4r1k1/8/8/q7/8/8/1N6/4K3 w - - 0 1');
-  ok(E0.inCheck(st, 'w'));
-  ok(E0.legalMoves(st).some(function (m) { return !m.captured; }), 'non-captures must be allowed in check');
+  var st = Eup.fromFEN('4r1k1/8/8/q7/8/8/1N6/4K3 w - - 0 1');
+  ok(Eup.inCheck(st, 'w'));
+  ok(Eup.legalMoves(st).some(function (m) { return !m.captured; }), 'non-captures must be allowed in check');
 });
 
 test('envoy captures are never compulsory', function () {
-  var st = E0.fromFEN('4k3/p7/8/8/8/3p4/2E4P/4K3 w - - 0 1'); // white 1 behind -> envoy may take d3
-  var ms = E0.legalMoves(st);
+  var st = Eup.fromFEN('4k3/p7/8/8/8/3p4/2E4P/4K3 w - - 0 1'); // white 1 behind -> envoy may take d3
+  var ms = Eup.legalMoves(st);
   ok(ms.some(function (m) { return m.from === S('c2') && m.to === S('d3'); }), 'Exd3 possible');
   ok(ms.some(function (m) { return !m.captured; }), 'but not forced');
 });
 
 test('compulsory capture does not force an envoy that may not capture', function () {
-  var st = E0.fromFEN('4k3/8/8/8/8/3p4/2E4P/4K3 w - - 0 1'); // equal -> envoy cannot capture
-  ok(E0.legalMoves(st).length > 1);
+  var st = Eup.fromFEN('4k3/8/8/8/8/3p4/2E4P/4K3 w - - 0 1'); // equal -> envoy cannot capture
+  ok(Eup.legalMoves(st).length > 1);
 });
 
 test('a side left with only king + envoy loses', function () {
@@ -315,8 +325,8 @@ test('king + envoy + one pawn is still alive', function () {
 });
 
 test('sacrificing a piece shrinks the opponent\'s deficit and weakens their envoy', function () {
-  var g = new E0.Game('4k1n1/1p5p/8/4e3/R7/8/PPP2PP1/6K1 w - - 0 1');  // black 5 behind -> rook + king envoy
-  eq(E0.envoyInfo(g.state(), 'b').movement, 'dragonKing');
+  var g = new E0.Game('4k1n1/1p5p/8/4e3/R7/8/PPP2PP1/6K1 w - - 0 1');  // black 5 behind -> king + knight + bishop envoy
+  eq(E0.envoyInfo(g.state(), 'b').movement, 'cardinal');
   var m = g.move({ from: S('a4'), to: S('a4') });                      // sacrifice the rook
   ok(m && m.sacrifice, 'sacrifice should be legal');
   eq(m.san, 'Sac:Ra4');
@@ -338,8 +348,8 @@ test('no sacrifice while in check', function () {
 });
 
 test('no sacrifice while a capture is compulsory', function () {
-  var st = E0.fromFEN('4k3/8/8/3n4/4P3/8/P6K/8 w - - 0 1');
-  var ms = E0.legalMoves(st);
+  var st = Eup.fromFEN('4k3/8/8/3n4/4P3/8/P6K/8 w - - 0 1');
+  var ms = Eup.legalMoves(st);
   ok(ms.length === 1 && ms[0].captured, 'exd5 is forced');
 });
 
@@ -356,25 +366,130 @@ test('sacrificing your last piece besides king + envoy loses', function () {
   eq(g.status().result, '0-1');
 });
 
-test('power cap: an envoy with no army behind it stays weak', function () {
-  // White has one pawn (strength 1) and is 13 behind -> without the cap: amazon; with it: king
-  var st = E0.fromFEN('6k1/5ppp/7q/8/3E4/8/7P/K7 w - - 0 1');
-  eq(E0.deficit(st, 'w'), 11);
-  eq(E0.powerDeficit(st, 'w'), 1);
-  eq(E0.envoyInfo(st, 'w').movement, 'king');
-  ok(E0.envoyInfo(st, 'w').canCapture, 'still behind, so it may capture');
+test('your own sacrifices power your own envoy', function () {
+  // White 4 vs Black 7 -> 3 behind: knight-or-bishop envoy. Sacrificing the bishop -> 6 behind.
+  var g = new E0.Game('6k1/6pp/8/4r3/3E4/8/1P6/K1B5 w - - 0 1');
+  ok(E0.envoyInfo(g.state(), 'w').pending, 'knight-or-bishop choice');
+  ok(g.move({ from: S('c1'), to: S('c1') }).sacrifice);
+  eq(E0.powerDeficit(g.state(), 'w'), 6);
+  eq(E0.envoyInfo(g.state(), 'w').movement, 'cardinal');
 });
 
-test('power cap: a real army behind keeps full power', function () {
-  var st = E0.fromFEN('6k1/7q/8/8/3E4/8/PPPPPP2/K7 w - - 0 1'); // white 6 vs 9 -> 3 behind, cap 6
+test('option ownSacrificesPower: false leaves your own sacrifices out', function () {
+  var E0 = E0x;
+  // White 4 vs Black 7 -> 3 behind: knight-or-bishop envoy. Sacrificing the bishop makes White
+  // 6 behind on the board, but the envoy still counts only 3.
+  var g = new E0.Game('6k1/6pp/8/4r3/3E4/8/1P6/K1B5 w - - 0 1');
+  eq(E0.deficit(g.state(), 'w'), 3);
+  ok(E0.envoyInfo(g.state(), 'w').pending, 'knight-or-bishop choice');
+  var m = g.move({ from: S('c1'), to: S('c1') });
+  ok(m && m.sacrifice, 'sacrifice should be legal');
+  eq(E0.deficit(g.state(), 'w'), 6);
+  eq(E0.powerDeficit(g.state(), 'w'), 3);
+  eq(g.state().sacrificed.w, 3);
+  ok(E0.envoyInfo(g.state(), 'w').pending, 'still the knight-or-bishop tier, not king + knight + bishop');
+});
+
+test('sacrificed material survives a save (FEN field 10)', function () {
+  var E0 = E0x;
+  var st = E0.fromFEN('6k1/6pp/8/4r3/3E4/8/1P6/K7 b - - 0 1 0,0 -,- - 3,0');
+  eq(st.sacrificed.w, 3);
   eq(E0.powerDeficit(st, 'w'), 3);
+  var fen = E0.toFEN(st);
+  ok(/ - 3,0$/.test(fen), fen);
+  eq(E0.toFEN(E0.fromFEN('8/8/8/8/8/8/8/K6k w - - 0 1')), '8/8/8/8/8/8/8/K6k w - - 0 1 0,0 -,-');
 });
 
-test('diplomatic distance 3: the envoy keeps an empty ring around the enemy king', function () {
+test('losing material to captures never weakens the envoy (the old power cap did)', function () {
+  // White R+B+2P = 10, Black 2Q+R+2P = 25 -> 15 behind. Black takes the bishop -> 18 behind.
+  var fen = '6k1/1q6/1q6/2r5/1B1E4/8/PP4pp/K7 b - - 0 1';
+  var before = E0.fromFEN(fen), after = E0.applyMove(before, { from: S('b6'), to: S('b4'), piece: 'bq', captured: 'wb' });
+  eq(E0.envoyInfo(before, 'w').movement, 'amazon');
+  eq(E0.envoyInfo(after, 'w').movement, 'amazon');
+  // the same position under the old cap: queen-tier before, weaker after the loss
+  var Ecap = E0.create(rulesWith({ envoy: { powerCap: 1 } }));
+  var b2 = Ecap.fromFEN(fen), a2 = Ecap.applyMove(b2, { from: S('b6'), to: S('b4'), piece: 'bq', captured: 'wb' });
+  ok(Ecap.powerDeficit(a2, 'w') < Ecap.powerDeficit(b2, 'w'), 'the old cap lowered the envoy\'s power after a loss');
+});
+
+test('random games: falling further behind (captures or own sacrifices) never weakens the envoy', function () {
+  var tiers = E0.rules.envoy.tiers, seed = 7;
+  function rnd() { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+  var checked = 0;
+  for (var game = 0; game < 60; game++) {
+    var g = new E0.Game();
+    for (var ply = 0; ply < 160 && !g.isOver(); ply++) {
+      var ms = g.legalMoves(), m = ms[Math.floor(rnd() * ms.length)];
+      var st = g.state(), us = st.turn, them = E0.opp(us);
+      var pdThem = E0.powerDeficit(st, them), tThem = tiers.indexOf(E0.tierFor(st, them)), pdUs = E0.powerDeficit(st, us);
+      g.move(m);
+      var n = g.state();
+      if (m.sacrifice) {
+        eq(E0.powerDeficit(n, us), pdUs + E0.rules.pieceValues[m.piece[1]], 'a sacrifice should add its value to the sacrificer\'s envoy power');
+        ok(tiers.indexOf(E0.tierFor(n, us)) <= tiers.indexOf(E0.tierFor(st, us)), 'a sacrifice weakened the sacrificer\'s envoy');
+      } else {
+        ok(E0.powerDeficit(n, them) >= pdThem, 'the opponent\'s envoy lost power after ' + m.san);
+        ok(tiers.indexOf(E0.tierFor(n, them)) <= tThem, 'the opponent\'s envoy dropped a tier after ' + m.san);
+      }
+      checked++;
+    }
+  }
+  ok(checked > 1000, 'checked ' + checked + ' moves');
+});
+
+test('the old power cap can still be switched on in rules.js', function () {
+  var Ecap = E0.create(rulesWith({ envoy: { powerCap: 1 } }));
+  var st = Ecap.fromFEN('6k1/5ppp/7q/8/3E4/8/7P/K7 w - - 0 1');   // 1 vs 12 -> 11 behind, capped to 1
+  eq(Ecap.powerDeficit(st, 'w'), 1);
+  eq(Ecap.envoyInfo(st, 'w').movement, 'king');
+});
+
+test('no diplomatic distance by default: the envoy may walk right up to the enemy king', function () {
+  var st = E0.fromFEN('4k3/8/8/3E4/8/8/P7/4K2p w - - 0 1');
+  var to = E0.legalMoves(st).filter(function (m) { return m.from === S('d5'); }).map(function (m) { return E0.sqName(m.to); });
+  ok(to.indexOf('d6') >= 0 && to.indexOf('e6') >= 0, 'next to the king is allowed: ' + to);
+  var g = new E0.Game('4k3/8/3E4/8/8/8/P7/4K2p w - - 0 1');
+  ok(g.move({ from: S('d6'), to: S('d7') }), 'Ed7');
+  ok(!g.status().check, 'the envoy never gives check');
+  var kto = g.legalMoves().filter(function (m) { return m.from === S('e8'); }).map(function (m) { return E0.sqName(m.to); });
+  ok(kto.indexOf('e7') >= 0 && kto.indexOf('d8') >= 0, 'the king may stand next to the envoy: ' + kto);
+  ok(kto.indexOf('d7') < 0, 'but cannot take it: ' + kto);
+});
+
+test('the envoy cannot checkmate, even where it would with givesCheck on', function () {
+  // Black king h8 boxed in by its own pawns g7/h7 and rook g8; White's envoy on f7 (5 behind: king + knight + bishop)
+  var fen = '6rk/5Epp/8/8/8/8/PP6/K7 b - - 0 1';
+  var g = new E0.Game(fen);
+  ok(!g.isOver() && !g.status().check, 'no check, game goes on');
+  var Echk = E0.create(rulesWith({ envoy: { givesCheck: true } }));
+  ok(Echk.inCheck(Echk.fromFEN(fen), 'b'), 'with givesCheck on, the knight jump f7-h8 would be check');
+});
+
+test('diplomatic distance 3 (option): the envoy keeps an empty ring around the enemy king', function () {
+  var E0 = Edist;
   var st = E0.fromFEN('4k3/8/8/3E4/8/8/P7/4K2p w - - 0 1');
   var to = E0.legalMoves(st).filter(function (m) { return m.from === S('d5'); }).map(function (m) { return E0.sqName(m.to); });
   ok(to.indexOf('d6') < 0 && to.indexOf('e6') < 0 && to.indexOf('c6') < 0, 'moved within two squares of the king: ' + to);
   ok(to.indexOf('c5') >= 0 && to.indexOf('e5') >= 0, 'three squares away is fine: ' + to);
+});
+
+test('a sacrifice freezes the enemy envoy for exactly its next turn', function () {
+  var g = new E0.Game();
+  play0(g, ['d3d3', 'd6d6', 'a2a2']);                     // White sacrifices the a2 pawn
+  ok(g.moves[2].sacrifice);
+  ok(!g.legalMoves().some(function (m) { return m.from === S('d6'); }), 'Black\'s envoy may not move this turn');
+  ok(g.legalMoves().some(function (m) { return m.from === S('e7'); }), 'Black\'s other pieces may');
+  play0(g, ['e7e6', 'h2h3']);
+  ok(g.legalMoves().some(function (m) { return m.from === S('d6'); }), 'free again a turn later');
+});
+
+test('with givesCheck on, a frozen envoy still gives check', function () {
+  // Black's envoy on d6 is frozen (cooldown field "0,1") but still attacks the squares around it
+  var Ec = E0.create(rulesWith({ envoy: { givesCheck: true } }));
+  var st = Ec.fromFEN('4k3/8/3e4/8/8/8/P7/4K3 w - - 0 1 0,1');
+  ok(!Ec.envoyInfo(st, 'b').ready);
+  ok(Ec.isAttacked(st, S('e7'), 'b') && Ec.isAttacked(st, S('c5'), 'b'), 'its squares are still attacked');
+  ok(!E0.isAttacked(E0.fromFEN('4k3/8/3e4/8/8/8/P7/4K3 w - - 0 1 0,1'), S('c5'), 'b'), 'by default it attacks nothing for check purposes');
 });
 
 test('no cooldown - the envoy may move on consecutive turns', function () {
@@ -383,13 +498,55 @@ test('no cooldown - the envoy may move on consecutive turns', function () {
   ok(g.legalMoves().some(function (m) { return m.from === S('e3'); }), 'envoy should be free to move again');
 });
 
-test('5-8 behind -> the envoy moves like a rook plus a king step', function () {
+test('5-8 behind -> the envoy moves like king + knight + bishop', function () {
   var st = E0.fromFEN('7k/6rr/8/8/3E4/8/PP6/K6B w - - 0 1');   // white 5, black 10
   eq(E0.powerDeficit(st, 'w'), 5);
-  eq(E0.envoyInfo(st, 'w').movement, 'dragonKing');
+  eq(E0.envoyInfo(st, 'w').movement, 'cardinal');
   var to = E0.legalMoves(st).filter(function (m) { return m.from === S('d4'); }).map(function (m) { return E0.sqName(m.to); });
-  eq(to.length, 18, 'rook lines 14 + diagonal steps 4: ' + to);
-  ok(to.indexOf('e5') >= 0 && to.indexOf('c3') >= 0 && to.indexOf('f6') < 0);
+  ['d5', 'c4', 'd3', 'e4'].forEach(function (q) { ok(to.indexOf(q) >= 0, 'king step ' + q + ': ' + to); });
+  ['b5', 'e6', 'f3', 'c2'].forEach(function (q) { ok(to.indexOf(q) >= 0, 'knight jump ' + q + ': ' + to); });
+  ['a7', 'g1', 'e3'].forEach(function (q) { ok(to.indexOf(q) >= 0, 'diagonal ' + q + ': ' + to); });
+  ok(to.indexOf('d6') < 0 && to.indexOf('a4') < 0, 'no rook lines yet: ' + to);
+});
+
+test('3-4 behind: an undecided envoy that captures can lose its knight/bishop moves', function () {
+  // White 4 (4 pawns) vs Black 8 (knight + 5 pawns): 4 behind, envoy on d4 undecided
+  var fen = '7k/ppp5/6pp/3n4/3E4/8/PPPP4/K7 w - - 0 1';
+  var st = E0.fromFEN(fen);
+  eq(E0.deficit(st, 'w'), 4); ok(E0.envoyInfo(st, 'w').pending);
+  var takeN = E0.legalMoves(st).filter(function (m) { return m.from === S('d4') && m.to === S('d5'); })[0];
+  ok(takeN && takeN.captured === 'bn' && !takeN.declare, 'Exd5 is a one-square capture that chooses nothing');
+  var after = E0.applyMove(st, takeN);
+  eq(E0.deficit(after, 'w'), 1);
+  eq(E0.envoyInfo(after, 'w').movement, 'king');
+  // the same capture of a pawn keeps the choice open
+  var st2 = E0.fromFEN('7k/pp6/2p4p/3p4/3E4/8/PPPP4/K6n w - - 0 1');   // 4 vs 8 again, pawn on d5
+  var after2 = E0.applyMove(st2, E0.legalMoves(st2).filter(function (m) { return m.from === S('d4') && m.to === S('d5'); })[0]);
+  eq(E0.deficit(after2, 'w'), 3); ok(E0.envoyInfo(after2, 'w').pending, 'still undecided');
+});
+
+test('the tiers are nested: each one can make every move of the tiers below it', function () {
+  function reach(names, from) {            // squares reachable on an empty board
+    var out = {};
+    names.forEach(function (n) {
+      E0.rules.movements[n].forEach(function (c) {
+        (c.leap || []).forEach(function (d) { var f = (from & 7) + d[0], r = (from >> 3) + d[1]; if (f >= 0 && f < 8 && r >= 0 && r < 8) out[r * 8 + f] = 1; });
+        (c.slide || []).forEach(function (d) { for (var f = (from & 7) + d[0], r = (from >> 3) + d[1]; f >= 0 && f < 8 && r >= 0 && r < 8; f += d[0], r += d[1]) out[r * 8 + f] = 1; });
+      });
+    });
+    return out;
+  }
+  var tiers = E0.rules.envoy.tiers;
+  for (var i = 0; i + 1 < tiers.length; i++) {
+    var strong = tiers[i], weak = tiers[i + 1];
+    var weakAll = weak.movement === 'choice' ? weak.options : [weak.movement];
+    (strong.movement === 'choice' ? strong.options : [strong.movement]).forEach(function (sOpt) {
+      for (var sq = 0; sq < 64; sq++) {
+        var s = reach([sOpt], sq), w = reach(weakAll, sq);
+        Object.keys(w).forEach(function (t) { ok(s[t], sOpt + ' from ' + E0.sqName(sq) + ' cannot reach ' + E0.sqName(+t) + ', which ' + weakAll.join('/') + ' can'); });
+      }
+    });
+  }
 });
 
 test('every tier keeps the king step', function () {
@@ -411,7 +568,7 @@ test('3-4 behind: king + knight or king + bishop; shared king steps fix nothing'
   var mv = E0.legalMoves(st).filter(function (m) { return m.from === S('d4'); });
   eq(mv.filter(function (m) { return !m.declare; }).length, 8, 'the 8 king steps');
   eq(mv.filter(function (m) { return m.declare === 'centaur'; }).length, 8, 'knight jumps');
-  eq(mv.filter(function (m) { return m.declare === 'dragonHorse'; }).length, 5, 'long diagonal moves (f6 is too close to the king)');
+  eq(mv.filter(function (m) { return m.declare === 'dragonHorse'; }).length, 7, 'long diagonal moves (up to g7, next to the king)');
   ok(E0.legalMoves(st).filter(function (m) { return m.from !== S('d4'); }).every(function (m) { return !m.declare; }), 'other pieces carry no choice');
   var g = new E0.Game('7k/8/8/8/3E4/8/P6p/KN3bn1 w - - 0 1');
   ok(g.move({ from: S('d4'), to: S('d5'), declare: 'centaur' }), 'king step (a stale choice is ignored)');
@@ -478,14 +635,17 @@ test('the computer places its envoy and plays on', function () {
 });
 
 test('stalemate is possible but rare (every piece pinned) and loses', function () {
-  // White: Ka1, pawn b2 pinned by the bishop on h8, knights cover a2/b1, the envoy on h1 may not go near Black's king
-  var g = new E0.Game('7b/8/4e3/8/8/6k1/1P1n4/K1n4E w - - 0 1');
+  // White: Ka1, pawn b2 pinned by the bishop on h8, knights cover a2/b1, and White's envoy is frozen because
+  // Black has just sacrificed (cooldown field "1,0"). White has no legal move and is not in check.
+  var g = new E0.Game('7b/8/4e3/8/8/6k1/1P1n4/K1n4E w - - 0 1 1,0');
+  ok(!E0.envoyInfo(g.state(), 'w').ready, 'white envoy frozen');
   eq(g.legalMoves().length, 0);
   var s = g.status();
   eq(s.reason, 'stalemate'); eq(s.result, '0-1');
 });
 
-test('the enemy king may walk up to the envoy (only the envoy keeps its distance)', function () {
+test('distance option: the enemy king may walk up to the envoy (only the envoy keeps its distance)', function () {
+  var E0 = Edist;
   var st = E0.fromFEN('8/4k3/8/8/4E3/8/8/K6p b - - 0 1');
   var to = E0.legalMoves(st).filter(function (m) { return m.from === S('e7'); }).map(function (m) { return E0.sqName(m.to); });
   ok(to.indexOf('e6') >= 0 && to.indexOf('d6') >= 0, 'two squares from the envoy is fine: ' + to);
