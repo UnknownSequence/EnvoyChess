@@ -24,6 +24,12 @@ V.noPowerCap = function () { return withRules({}, { powerCap: null }); };
 V.noDistance = function () { return withRules({}, { minKingDistance: null }); };
 V.noCheck = function () { return withRules({}, { givesCheck: false }); };
 V.cooldown = function () { return withRules({}, { cooldownTurns: 1 }); };
+// these rules with the envoy allowed one square closer (not next to the king, as in v4)
+V.distance2 = function () { return withRules({}, { minKingDistance: 2 }); };
+// these rules, but the envoy starts on the bishop's square (c1 / c8) instead of being placed
+V.bishopSquare = function () {
+  return withRules({ startFEN: 'rneqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNEQKBNR w KQkq - 0 1', envoyDrop: { enabled: false, ranks: { w: [], b: [] } } });
+};
 // plain chess with the same bots, as a yardstick
 V.chess = function () { return withRules({ startFEN: CHESS, forcedCapture: false, loseWithOnly: null, sacrifice: { enabled: false, pieces: [] } }); };
 
