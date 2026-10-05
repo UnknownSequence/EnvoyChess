@@ -33,9 +33,10 @@
     },
     // How much the AI values its envoy in each movement mode (centipawns).
     // The envoy is worth 0 "strength", but a strong envoy is still useful.
-    envoyModeValue: { king: 80, knight: 230, bishop: 230, rook: 380, queen: 650, amazon: 900, pending: 230 },
+    envoyModeValue: { king: 80, knight: 230, bishop: 230, rook: 380, queen: 650, amazon: 900, centaur: 300, dragonHorse: 330, dragonKing: 520, pending: 330 },
     envoyCaptureBonus: 40,     // extra when the envoy may capture
     envoyNearKingBonus: 14,    // per step closer to the enemy king (envoys can deliver mate)
+    envoyCenter: 3,            // per step towards the centre (also decides where to place an envoy in hand)
     pieceScale: 100,           // strength point -> centipawns
     lastPiecePenalty: 150,     // only one piece left besides king + envoy (losing it loses the game)
     mopUpEdge: 10,             // endgame: enemy king pushed to the edge
@@ -84,6 +85,7 @@
         var d = Math.max(Math.abs((ek & 7) - (envoys[c] & 7)), Math.abs((ek >> 3) - (envoys[c] >> 3)));
         v += (7 - d) * CONFIG.envoyNearKingBonus;
       }
+      v += CENTER[envoys[c]] * CONFIG.envoyCenter;
       score += sgn * v;
     });
     if (R.loseWithOnly) ['w', 'b'].forEach(function (c) {
@@ -203,7 +205,7 @@
         if (sc > alpha) alpha = sc;
         if (alpha >= beta) break;
       }
-      if (!legal) return E.inCheck(st, st.turn) ? -MATE + ply : 0;
+      if (!legal) return E.inCheck(st, st.turn) || E.rules.draws.stalemate === 'loss' ? -MATE + ply : 0;
       return best;
     }
 

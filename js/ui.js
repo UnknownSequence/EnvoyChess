@@ -10,10 +10,10 @@
   'use strict';
 
   var E = window.EnvoyEngine, R = window.EnvoyRules, P = window.EnvoyPieces, AI = window.EnvoyAI;
-  var STORAGE_KEY = 'envoy-chess-save';
+  var STORAGE_KEY = 'equalizer-chess-save';
   var sacMode = false;       // clicking one of your pieces sacrifices it
   var COLOR_NAME = { w: 'White', b: 'Black' };
-  var MOVE_LETTER = { king: 'K', knight: 'N', bishop: 'B', rook: 'R', queen: 'Q', amazon: 'A' };
+  var MOVE_LETTER = { king: 'K', knight: 'N', bishop: 'B', rook: 'R', queen: 'Q', amazon: 'A', centaur: 'N+', dragonHorse: 'B+', dragonKing: 'R+' };
 
   // ------------------------------------------------------------------ state
   var settings = { mode: 'local', side: 'w', humanColor: 'w', level: 2, sound: true };
@@ -77,6 +77,9 @@
     if (sacMode) toast('Sacrifice: click one of your pieces to remove it (uses your turn). Click Sacrifice again to cancel.');
     renderSquares();
   }
+  function dropMoves() { return canInteract() ? legalUI().filter(function (m) { return m.drop; }) : []; }
+  function dropRange(c) { return ((R.envoyDrop && R.envoyDrop.ranks[c]) || []).map(function (r) { return 'a' + r + ' to h' + r; }).join(', '); }
+  function dropRankText(c) { return 'rank ' + ((R.envoyDrop && R.envoyDrop.ranks[c]) || []).join(' or '); }
   function destsFrom(sq) {
     var out = [];
     legalUI().forEach(function (m) { if (m.from === sq && !m.sacrifice && out.indexOf(m.to) < 0) out.push(m.to); });
@@ -102,7 +105,8 @@
 
   function renderSquares() {
     var st = shownState();
-    var dests = (selected >= 0 && canInteract()) ? destsFrom(selected) : [];
+    var drops = dropMoves().map(function (m) { return m.to; });
+    var dests = drops.length ? drops : (selected >= 0 && canInteract()) ? destsFrom(selected) : [];
     var checkSq = E.inCheck(st, st.turn) ? E.findKing(st, st.turn) : -1;
     for (var sq = 0; sq < 64; sq++) {
       var c = squareEls[sq].classList;
@@ -140,6 +144,12 @@
       piecesEl.appendChild(d);
       map[sq] = d;
     }
+    if (isLive()) dropMoves().forEach(function (m) {
+      var g = bg(el('div', 'piece drop-ghost'), m.piece);
+      g.style.left = colOf(m.to) * 12.5 + '%';
+      g.style.top = rowOf(m.to) * 12.5 + '%';
+      piecesEl.appendChild(g);
+    });
     if (anim && anim.length) {
       anim.forEach(function (a) {
         var n = map[a.to];
@@ -168,11 +178,12 @@
 
   // ------------------------------------------------------------------ panels
   function envoyText(st, c) {
+    if (st.inHand && st.inHand[c]) return '<span class="em">In hand</span> · ' + (st.turn === c ? 'place it on ' + dropRankText(c) + ' now' : 'placed on ' + dropRankText(c) + ' as the first move');
     if (!E.hasEnvoy(st, c)) return 'No envoy';
     var info = E.envoyInfo(st, c), parts = [];
     if (info.pending) {
       var opts = info.tier.options.map(movementName).join(' or ');
-      if (R.envoy.chooseBy === 'move') parts.push('Moves like a <span class="em">' + opts + '</span> (its first move decides)');
+      if (R.envoy.chooseBy === 'move') parts.push('Moves like a <span class="em">' + opts + '</span> (not chosen yet: a knight jump or long diagonal move decides)');
       else parts.push(st.turn === c ? '<span class="em">Must declare: ' + opts + '</span>'
                                : '<span class="em">Undeclared</span> (checks as ' + info.tier.options.map(movementName).join(' + ') + ')');
     } else {
@@ -221,7 +232,7 @@
     return lo === hi ? String(lo) : lo + '–' + hi;
   }
   function tierMoveText(t) {
-    if (t.movement === 'choice') return t.options.map(movementName).join(' or ') + ' <span style="color:var(--muted)">(' + (R.envoy.chooseBy === 'move' ? 'first move decides' : 'declare') + ')</span>';
+    if (t.movement === 'choice') return t.options.map(movementName).join(' or ') + ' <span style="color:var(--muted)">(' + (R.envoy.chooseBy === 'move' ? 'a knight jump or long diagonal decides' : 'declare') + ')</span>';
     return movementName(t.movement);
   }
 
@@ -265,6 +276,7 @@
       var txt = COLOR_NAME[st.turn] + ' to move';
       if (settings.mode === 'ai') txt = isHumanTurn() ? 'Your turn' : 'Computer is thinking…';
       if (E.needsDeclaration(st) && chosenDecl === null) txt += ' — declare the envoy first';
+      if (st.inHand && st.inHand[st.turn]) txt += ' — place the envoy on ' + dropRankText(st.turn);
       if (s.check) { txt += ' · Check!'; node.classList.add('check'); }
       else if (s.mustCapture) txt += ' · a capture is compulsory';
       node.textContent = txt;
@@ -321,8 +333,8 @@
     if (!needsDeclNow()) { ov.classList.add('hidden'); return; }
     var st = game.state(), info = E.envoyInfo(st, st.turn);
     var btns = info.tier.options.map(function (o) {
-      var hint = o === 'knight' ? 'jumps in an L' : o === 'bishop' ? 'slides diagonally' : '';
-      var pic = { knight: 'n', bishop: 'b', rook: 'r', queen: 'q', king: 'k' }[o];
+      var hint = { knight: 'jumps in an L', bishop: 'slides diagonally', centaur: 'king step or L jump', dragonHorse: 'king step or diagonal slide' }[o] || '';
+      var pic = { knight: 'n', bishop: 'b', rook: 'r', queen: 'q', king: 'k', centaur: 'n', dragonHorse: 'b', dragonKing: 'r' }[o];
       return '<button data-decl="' + o + '"><span class="pic" style=\'background-image:' + (pic ? P.url(st.turn + pic) : P.url(st.turn + 'e')) +
         '\'></span>' + movementName(o) + '<small>' + hint + '</small></button>';
     }).join('');
@@ -402,7 +414,7 @@
         toast(COLOR_NAME[c] + '\'s envoy is capped by ' + COLOR_NAME[c] + '\'s remaining army (strength ' + b.strength +
           '). Sacrificing more will not make it stronger.');
       } else if (a.tier !== b.tier) {
-        var what = b.pending ? (R.envoy.chooseBy === 'move' ? 'may now move like a ' + b.tier.options.map(movementName).join(' or ') + ' (its first move decides)' : 'must now declare ' + b.tier.options.map(movementName).join(' or '))
+        var what = b.pending ? (R.envoy.chooseBy === 'move' ? 'may now move like a ' + b.tier.options.map(movementName).join(' or ') + ' (a knight jump or long diagonal move decides)' : 'must now declare ' + b.tier.options.map(movementName).join(' or '))
                              : 'now moves like a ' + movementName(b.movement);
         var why = b.deficit > 0 ? ' (' + COLOR_NAME[c] + ' is ' + b.deficit + ' behind)' : '';
         toast(COLOR_NAME[c] + '\'s envoy ' + what + why);
@@ -504,6 +516,13 @@
     var sq = squareAt(e.clientX, e.clientY);
     if (sq < 0) return;
     var st = game.state(), p = st.board[sq];
+    var drops = dropMoves();
+    if (drops.length) {
+      var dm = drops.filter(function (m) { return m.to === sq; })[0];
+      if (dm) playMove(dm, { noAnim: true });
+      else toast('First place your envoy: click one of the marked squares on ' + dropRankText(st.turn) + '.');
+      return;
+    }
     if (sacMode) {
       var sm = sacrificeFor(sq);
       if (sm) playMove(sm, { noAnim: true });
@@ -648,7 +667,7 @@
       if (!tok) continue;
       var st = g.state(), legal = g.legalMoves(), want = tok.replace(/[+#!?]+$/, '');
       var cands = legal.filter(function (x) {
-        return (x.declare || null) === decl && (x.castle || want.indexOf(E.sqName(x.sacrifice ? x.from : x.to)) >= 0);
+        return (R.envoy.chooseBy === 'move' || (x.declare || null) === decl) && (x.castle || want.indexOf(E.sqName(x.sacrifice ? x.from : x.to)) >= 0);
       });
       var m = cands.filter(function (x) { return E.san(st, x, legal).replace(/[+#]$/, '') === want; })[0];
       if (!m) return { error: 'Could not read move ' + (n + 1) + ' ("' + tok + '"). Was the whole message pasted?' };
@@ -778,10 +797,15 @@
     var cd = ev.cooldownTurns;
     var html =
       '<h2>' + pic('we') + ' ' + R.name + ' — rules</h2>' +
-      '<p>Everything is normal chess (moves, check, checkmate, castling, en passant, promotion, stalemate) except for one new piece: the <b>envoy</b> ' +
+      '<p>Everything is normal chess (moves, check, checkmate, castling, en passant, promotion' + (R.draws.stalemate === 'loss' ? '' : ', stalemate') + ') except for one new piece: the <b>envoy</b> ' +
       pic('we') + pic('be') + ', drawn as an upside-down triangle.</p>' +
-      '<h3>Setup</h3><p>White\'s envoy starts on <b>' + envSq.w.join(', ') + '</b> and Black\'s on <b>' + envSq.b.join(', ') +
-      '</b>, replacing White\'s dark-squared bishop and Black\'s light-squared bishop. Everything else is the normal starting position.</p>' +
+      (R.envoyDrop && R.envoyDrop.enabled && (start.inHand.w || start.inHand.b)
+        ? '<h3>Setup</h3><p>The normal chess army, with every piece in its usual place. The envoys start <b>in hand</b>, off the board.</p>' +
+          '<p><b>Placing the envoy:</b> White\'s first move is to place its envoy on any empty square of <b>' + dropRankText('w') + '</b> (' + dropRange('w') + '). ' +
+          'Black\'s first move is to place its envoy on any empty square of <b>' + dropRankText('b') + '</b> (' + dropRange('b') + '). Normal play starts after that. ' +
+          'Placing is written like <code>E@d3</code>.</p>'
+        : '<h3>Setup</h3><p>White\'s envoy starts on <b>' + envSq.w.join(', ') + '</b> and Black\'s on <b>' + envSq.b.join(', ') +
+          '</b>, replacing White\'s dark-squared bishop and Black\'s light-squared bishop. Everything else is the normal starting position.</p>') +
       '<h3>Strength</h3><p>A side\'s <b>strength</b> is the sum of its pieces\' values:</p><table><tr><th>Piece</th><th>Value</th></tr>' + vals + '</table>' +
       '<p>You are <b>behind</b> by (opponent\'s strength − your strength). Both sides start at ' + E.strength(start, 'w') + '.</p>' +
       '<h3>The envoy</h3><ul>' +
@@ -791,8 +815,8 @@
         : '<li><b>Diplomatic immunity:</b> the envoy can never be captured, not even by the other envoy.</li>') +
       (ev.minKingDistance ? '<li><b>Diplomatic distance:</b> the envoy may never move onto a square ' +
         (ev.minKingDistance === 2 ? '<b>next to the enemy king</b> (one square away in any direction, including diagonally)'
-          : 'within ' + (ev.minKingDistance - 1) + ' squares of the enemy king') +
-        '. It can still attack the king from further away.</li>' : '') +
+          : '<b>within ' + (ev.minKingDistance - 1 === 2 ? 'two' : ev.minKingDistance - 1) + ' squares of the enemy king</b> (in any direction, including diagonally), so there is always at least one empty square between them') +
+        '. It can still attack the king from further away. Only the envoy is restricted: the enemy king may walk up to it, as long as it does not step onto a square the envoy attacks.</li>' : '') +
       '<li>It may capture enemy pieces <b>only while its side is behind</b>' +
       (ev.captureMinDeficit === 1 ? ' (has less strength than the opponent)' : ' by ' + ev.captureMinDeficit + ' or more') + '.</li>' +
       (ev.givesCheck === 'whenArmed'
@@ -803,14 +827,34 @@
         (ev.cooldownResetOnOpponentCapture ? ', <i>unless</i> your opponent captures one of your pieces in between, which makes it ready again at once' : '') + '.</li>' : '') +
       '<li>How it moves depends on how far behind its side is:</li></ul>' +
       '<table><tr><th>Behind by</th><th>Envoy moves like</th></tr>' + tierRows + '</table>' +
-      '<p class="note">Amazon = queen + knight. Being ahead or equal counts as "behind by 0 or less".</p>' +
+      '<p class="note">' + (tiers.some(function (t) { return t.movement === 'dragonKing' || (t.options || []).indexOf('centaur') >= 0; })
+        ? 'Every row keeps the king\'s one-square step, so the envoy only ever gains moves as its side falls further behind. ' : '') +
+      'Amazon = queen + knight. Being ahead or equal counts as "behind by 0 or less".</p>' +
       (ev.powerCap != null ? '<p><b>Counting "behind by" for the envoy:</b> the gap can count for at most ' +
         (ev.powerCap === 1 ? 'your own remaining strength' : ev.powerCap + ' times your own remaining strength') +
-        '. Example: your pieces add up to 3 and you are 20 behind; your envoy moves as if you were only 3 behind (knight or bishop). This stops a player from giving away all their pieces to get a huge envoy. (Capturing still only needs your side to be behind.)</p>' : '') +
+        '. Example: your pieces add up to 3 and you are 20 behind; your envoy moves as if you were only 3 behind. This stops a player from giving away all their pieces to get a huge envoy. (Capturing still only needs your side to be behind.)</p>' : '') +
       (tiers.some(function (t) { return t.movement === 'choice'; }) ?
         (ev.chooseBy === 'move'
-          ? '<p><b>Knight or bishop:</b> there is nothing to declare. Until it moves, the envoy may move like <i>either</i> one; its first move in that range (a knight jump or a diagonal slide) fixes that movement for as long as your side stays in the range. Moving other pieces fixes nothing. If you leave the range and come back later, the envoy may choose again. ' +
-            (ev.undeclaredCheckPattern === 'union' ? 'Until it has chosen, it gives check like both a knight and a bishop.' : '') + '</p>'
+          ? (function () {
+              var ct = tiers.filter(function (t) { return t.movement === 'choice'; })[0], names = ct.options.map(movementName);
+              var shortN = ct.options.map(function (o) { return ({ centaur: 'king + knight', dragonHorse: 'king + bishop' })[o] || movementName(o).toLowerCase(); });
+              var kingBoth = ct.options.indexOf('centaur') >= 0 && ct.options.indexOf('dragonHorse') >= 0;
+              var i = tiers.indexOf(ct), range = rangeText(tiers, i).replace('–', ' or ');
+              if (!kingBoth) return '<p><b>' + names.join(' or ') + ':</b> there is nothing to declare. Until it moves, the envoy may move like <i>either</i> ' + shortN.join(' or ') +
+                '. Its first move in that range that only one of them allows fixes that movement for as long as your side stays in the range. Moving other pieces fixes nothing, so you may put the choice off for as long as you like. ' +
+                'If you leave the range and come back later, the envoy may choose again.' + (ev.undeclaredCheckPattern === 'union' ? ' Until it has chosen, it gives check along both patterns.' : '') + '</p>';
+              return '<h3>The envoy\'s choice: king + knight or king + bishop</h3>' +
+                '<p>When your side is ' + range + ' behind (counted as above), your envoy has two possible movements: <b>king + knight</b> or <b>king + bishop</b>. ' +
+                'There is nothing to announce: the way the envoy moves makes the choice.</p><ul>' +
+                '<li><b>Before the choice:</b> the envoy may make any move that either movement allows, captures included: a one-square step in any direction, a knight jump, or a diagonal move of any length.</li>' +
+                '<li><b>What makes the choice:</b> the first envoy move that only one of the two allows. A <b>knight jump</b> chooses king + knight. A <b>diagonal move of two or more squares</b> chooses king + bishop. Captures count the same way.</li>' +
+                '<li><b>What does not:</b> a one-square step or one-square capture (both movements allow it), moving any other piece, or a sacrifice. So you may put the choice off for as long as you like.</li>' +
+                (ev.undeclaredCheckPattern === 'union' ? '<li><b>Check while undecided:</b> the envoy attacks along both patterns at once (one-square steps, knight jumps and diagonals), so the enemy king may not step onto any of those squares, and a check along either pattern must be answered.</li>' : '') +
+                '<li><b>After the choice:</b> the envoy moves only that way, with the one-square step still available, for as long as your side stays ' + range + ' behind.</li>' +
+                '<li><b>Leaving the range:</b> if the gap is no longer ' + range + ' (for example after a capture or a sacrifice), the choice is wiped. If your side comes back into the range later, the envoy is free to choose again.</li>' +
+                '<li><b>On screen:</b> the envoy\'s badge shows an orange <b>?</b> while it has not chosen, then <b>N+</b> or <b>B+</b>. The deciding move is tagged in the move list, for example <code>E=N+</code>.</li></ul>' +
+                '<p class="note">Example: White is 4 behind and its undecided envoy stands on d4. <code>Exd5</code> (one square) keeps the choice open, <code>Ef5</code> (a knight jump) chooses king + knight, and <code>Eg7</code> (a long diagonal) chooses king + bishop.</p>';
+            })()
           : '<p><b>Declaring:</b> on the first turn your side is in a "declare" range, you choose one of the options before moving. ' +
             'You may then move the envoy or any other piece. The choice stays until your side leaves that range; if you come back later you declare again. ' +
             (ev.undeclaredCheckPattern === 'union' ? 'Until the owner has declared, that envoy gives check along <i>all</i> of the options.' : '') + '</p>') : '') +
@@ -818,7 +862,7 @@
       ', <b>never</b> to an envoy.</p>' +
       (R.forcedCapture === 'upward' ? '<h3>Compulsory captures (weaker takes stronger)</h3><p>A capture is compulsory only when one of your pieces can take a <b>more valuable</b> enemy piece (for example pawn takes knight, knight or bishop takes rook, rook takes queen). Then you must make one such capture, but you choose which. Equal trades and captures of cheaper pieces stay optional. ' +
           (R.forcedCaptureExempt && R.forcedCaptureExempt.length ? 'Captures by the ' + R.forcedCaptureExempt.map(function (t) { return R.pieceNames[t].toLowerCase(); }).join(' and ') + ' are never compulsory. ' : '') +
-          'Not while your king is in check: then any legal move that answers the check is allowed.</p>'
+          'If your king is in check, captures are not compulsory: any legal move that answers the check is allowed.</p>'
         : R.forcedCapture ? '<h3>Compulsory captures</h3><p>If you can capture, you <b>must</b> capture (you choose which). The only exception is when your king is in check.</p>' : '') +
       (R.sacrifice && R.sacrifice.enabled ? '<h3>Sacrifice</h3><p>Instead of moving, you may <b>sacrifice</b> one of your own pieces (' +
           R.sacrifice.pieces.map(function (t) { return R.pieceNames[t].toLowerCase(); }).join(', ') + '): it is removed from the board and your turn ends. ' +
@@ -826,11 +870,13 @@
           '<p class="note">Why sacrifice? Your strength drops, so a side that is behind you becomes <i>less</i> behind and <b>its envoy gets weaker</b>. It can also open lines for your other pieces. But too much sacrifice is bad: a side left with only king and envoy loses.</p>' : '') +
       (R.loseWithOnly ? '<h3>Running out of pieces</h3><p>A side left with <b>only its ' + R.loseWithOnly.map(function (t) { return R.pieceNames[t].toLowerCase(); }).join(' and ') +
         '</b> loses immediately. Sacrificing every piece to power up the envoy does not work: you must keep at least one other piece.</p>' : '') +
-      '<h3>Draws</h3><ul><li>Stalemate</li>' + (R.draws.threefoldRepetition ? '<li>Threefold repetition (automatic)</li>' : '') +
+      (R.draws.stalemate === 'loss' ? '<h3>Stalemate loses</h3><p>A player who is <b>not in check but has no legal move</b> loses (in normal chess this is a draw). ' +
+        'It is rare, because you can almost always sacrifice a piece instead of moving: every remaining piece must be pinned to your king (so removing it would expose the king), and your king and envoy must have no moves.</p>' : '') +
+      '<h3>Draws</h3><ul>' + (R.draws.stalemate === 'loss' ? '' : '<li>Stalemate</li>') + (R.draws.threefoldRepetition ? '<li>Threefold repetition (automatic)</li>' : '') +
       (R.draws.fiftyMoveRule ? '<li>Fifty-move rule (automatic)</li>' : '') + '<li>Agreement</li></ul>' +
-      '<h3>Notation</h3><p>The envoy is written <code>E</code> (e.g. <code>Ed2</code>, <code>Exe5</code>). The envoy\'s choice of knight or bishop movement is shown as an orange tag such as ' +
-      '<code>E=N</code> on the move that made it.</p>' +
-      '<h3>Changing the rules</h3><p class="note">All numbers on this page come from <code>js/rules.js</code>. Edit that file and reload to play a different version.</p>';
+      '<h3>Notation</h3><p>The envoy is written <code>E</code> (e.g. <code>Ed2</code>, <code>Exe5</code>). ' + (R.envoyDrop && R.envoyDrop.enabled ? 'Placing it is written <code>E@d3</code>. ' : '') + 'The envoy\'s choice in the 3–4 range is shown as an orange tag such as ' +
+      '<code>E=' + (MOVE_LETTER[(tiers.filter(function (t) { return t.movement === 'choice'; })[0] || { options: ['knight'] }).options[0]] || 'N') + '</code> on the move that made it.</p>' +
+      '';
     $('rules-body').innerHTML = html;
   }
   $('btn-rules').onclick = function () { buildRules(); $('modal-rules').classList.remove('hidden'); };

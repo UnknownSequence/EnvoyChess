@@ -44,6 +44,7 @@
      * FEN with two optional extension fields for the envoy:
      *   7th field: envoy cooldowns  "w,b"   e.g. "1,0"
      *   8th field: declarations     "w,b"   e.g. "knight,-"
+     *   9th field: envoys still in hand (not yet placed)  e.g. "Ee", "e" or "-"
      */
     function fromFEN(fen) {
       var parts = fen.trim().split(/\s+/);
@@ -63,6 +64,7 @@
       var cast = parts[2] || '-';
       var cd = (parts[6] || '0,0').split(',');
       var dc = (parts[7] || '-,-').split(',');
+      var hand = parts[8] || '-';
       var st = {
         board: board,
         turn: parts[1] || 'w',
@@ -72,6 +74,7 @@
         fullmove: parseInt(parts[5] || '1', 10),
         cooldown: { w: parseInt(cd[0], 10) || 0, b: parseInt(cd[1], 10) || 0 },
         declared: { w: dc[0] && dc[0] !== '-' ? dc[0] : null, b: dc[1] && dc[1] !== '-' ? dc[1] : null },
+        inHand: { w: hand.indexOf('E') >= 0 ? 1 : 0, b: hand.indexOf('e') >= 0 ? 1 : 0 },
         lastMove: null,
         lastCapture: false
       };
@@ -100,6 +103,7 @@
         ' ' + st.halfmove + ' ' + st.fullmove;
       if (withEnvoyFields !== false) {
         fen += ' ' + st.cooldown.w + ',' + st.cooldown.b + ' ' + (st.declared.w || '-') + ',' + (st.declared.b || '-');
+        if (st.inHand.w || st.inHand.b) fen += ' ' + (st.inHand.w ? 'E' : '') + (st.inHand.b ? 'e' : '');
       }
       return fen;
     }
@@ -354,8 +358,26 @@
       }
     }
 
+    /** Squares where side c may place an envoy it still holds (see rules.envoyDrop). */
+    function dropSquares(st, c) {
+      var d = R.envoyDrop, out = [];
+      if (!d || !d.enabled || !st.inHand[c]) return out;
+      var ranks = d.ranks[c], minD = R.envoy.minKingDistance, ek = minD ? findKing(st, opp(c)) : -1;
+      for (var i = 0; i < 64; i++) {
+        if (st.board[i] || ranks.indexOf((i >> 3) + 1) < 0) continue;
+        if (ek >= 0 && Math.max(Math.abs((i & 7) - (ek & 7)), Math.abs((i >> 3) - (ek >> 3))) < minD) continue;
+        out.push(i);
+      }
+      return out;
+    }
+
     function pseudoMoves(st) {
       var moves = [], b = st.board, us = st.turn;
+      // ENVOY DROP: while your envoy is still in hand, placing it is your only move
+      var drops = dropSquares(st, us);
+      if (drops.length) {
+        return drops.map(function (sq) { return { from: sq, to: sq, piece: us + 'e', captured: null, drop: true }; });
+      }
       for (var i = 0; i < 64; i++) {
         var p = b[i];
         if (!p || p[0] !== us) continue;
@@ -368,11 +390,20 @@
             var before = moves.length;
             if (choosing) {
               // not chosen yet: it may move like any option; the move it makes fixes the choice
-              var seenTo = {};
+              // (a square that several options reach, e.g. a king step, fixes nothing)
+              var byTo = {}, order = [];
               info.tier.options.forEach(function (opt) {
                 var part = [];
                 genComponents(st, i, componentsOf([opt]), info.canCapture, part);
-                part.forEach(function (m) { if (!seenTo[m.to]) { seenTo[m.to] = 1; m.declare = opt; moves.push(m); } });
+                part.forEach(function (m) {
+                  if (!byTo[m.to]) { byTo[m.to] = { m: m, opts: [] }; order.push(m.to); }
+                  if (byTo[m.to].opts.indexOf(opt) < 0) byTo[m.to].opts.push(opt);
+                });
+              });
+              order.forEach(function (to) {
+                var e = byTo[to];
+                if (e.opts.length === 1) e.m.declare = e.opts[0];
+                moves.push(e.m);
               });
             } else genComponents(st, i, info.moveComponents, info.canCapture, moves);
             var minD = R.envoy.minKingDistance, ek = minD ? findKing(st, opp(us)) : -1;
@@ -476,6 +507,7 @@
         fullmove: st.fullmove,
         cooldown: { w: st.cooldown.w, b: st.cooldown.b },
         declared: { w: st.declared.w, b: st.declared.b },
+        inHand: { w: st.inHand.w, b: st.inHand.b },
         lastMove: st.lastMove,
         lastCapture: st.lastCapture,
         str: st.str ? { w: st.str.w, b: st.str.b } : null
@@ -488,6 +520,18 @@
       var n = cloneState(st);
       var b = n.board, piece = b[m.from];
       if (m.declare) n.declared[us] = m.declare;
+
+      if (m.drop) {                            // the envoy is placed on the board
+        b[m.to] = m.piece;
+        n.inHand[us] = 0;
+        n.turn = them; n.ep = -1; n.halfmove = st.halfmove + 1;
+        if (us === 'b') n.fullmove++;
+        n.lastMove = { from: m.to, to: m.to, drop: true };
+        n.lastCapture = false;
+        if (n.cooldown[us] > 0) n.cooldown[us]--;
+        normalizeDeclarations(n);
+        return n;
+      }
 
       if (m.sacrifice) {                       // the piece simply leaves the board
         b[m.from] = null;
@@ -553,6 +597,7 @@
     function san(st, m, legal) {
       var s;
       if (m.sacrifice) s = 'Sac:' + (m.piece[1] === 'p' ? '' : m.piece[1].toUpperCase()) + sqName(m.from);
+      else if (m.drop) s = 'E@' + sqName(m.to);
       else if (m.castle) s = m.castle === 'K' ? 'O-O' : 'O-O-O';
       else {
         var t = m.piece[1];
@@ -585,7 +630,7 @@
       var b = st.board.map(function (p) { return p || '.'; }).join('');
       var c = st.castling;
       return b + st.turn + (c.K ? 1 : 0) + (c.Q ? 1 : 0) + (c.k ? 1 : 0) + (c.q ? 1 : 0) + st.ep +
-        '|' + st.cooldown.w + st.cooldown.b + '|' + st.declared.w + st.declared.b;
+        '|' + st.cooldown.w + st.cooldown.b + '|' + st.declared.w + st.declared.b + '|' + st.inHand.w + st.inHand.b;
     }
 
     function Game(fen) {
@@ -600,11 +645,13 @@
     Game.prototype.move = function (want) {
       if (this.isOver()) return null;
       var st = this.state(), legal = legalMoves(st);
-      var m = legal.filter(function (x) {
+      var same = legal.filter(function (x) {
         return x.from === want.from && x.to === want.to &&
-          (x.promotion || null) === (want.promotion || null) &&
-          (x.declare || null) === (want.declare || null);
-      })[0];
+          (x.promotion || null) === (want.promotion || null);
+      });
+      var m = same.filter(function (x) { return (x.declare || null) === (want.declare || null); })[0];
+      // the envoy's choice is implied by the move itself, so a stale `declare` is harmless
+      if (!m && same.length === 1 && R.envoy.chooseBy === 'move') m = same[0];
       if (!m) return null;
       m.san = san(st, m, legal);
       this.moves.push(m);
@@ -638,6 +685,7 @@
       var hasMoves = legalMoves(st).length > 0;
       var check = inCheck(st, st.turn);
       if (!hasMoves && check) res = { over: true, result: st.turn === 'w' ? '0-1' : '1-0', reason: 'checkmate', winner: opp(st.turn) };
+      else if (!hasMoves && R.draws.stalemate === 'loss') res = { over: true, result: st.turn === 'w' ? '0-1' : '1-0', reason: 'stalemate', winner: opp(st.turn) };
       else if (!hasMoves) res = { over: true, result: '1/2-1/2', reason: 'stalemate', winner: null };
       else if (R.draws.fiftyMoveRule && st.halfmove >= 100) res = { over: true, result: '1/2-1/2', reason: 'fifty-move rule', winner: null };
       else if (R.draws.threefoldRepetition && this.repetitions() >= 3) res = { over: true, result: '1/2-1/2', reason: 'threefold repetition', winner: null };
@@ -652,7 +700,7 @@
       return n;
     };
     Game.prototype.pgn = function () {
-      var out = ['[Event "Envoy Chess game"]', '[Variant "' + R.name + '"]', '[FEN "' + toFEN(this.states[0], false) + '"]'];
+      var out = ['[Event "Envoy Chess game"]', '[Variant "' + R.name + '"]', '[FEN "' + toFEN(this.states[0], !!(this.states[0].inHand.w || this.states[0].inHand.b)) + '"]'];
       var st = this.status();
       out.push('[Result "' + (st.over ? st.result : '*') + '"]', '');
       var text = [];
@@ -674,7 +722,7 @@
       opp: opp, sqName: sqName, parseSq: parseSq,
       fromFEN: fromFEN, toFEN: toFEN,
       strength: strength, deficit: deficit, powerDeficit: powerDeficit, tierFor: tierFor,
-      envoyInfo: envoyInfo, needsDeclaration: needsDeclaration, hasEnvoy: hasEnvoy,
+      envoyInfo: envoyInfo, needsDeclaration: needsDeclaration, hasEnvoy: hasEnvoy, dropSquares: dropSquares,
       isAttacked: isAttacked, inCheck: inCheck, findKing: findKing,
       pseudoMoves: pseudoMoves, legalMoves: legalMoves, applyMove: applyMove, withDeclaration: withDeclaration,
       san: san, positionKey: positionKey, bareSide: bareSide, spareCount: spareCount, mustCapture: mustCapture, isForcingCapture: isForcingCapture,

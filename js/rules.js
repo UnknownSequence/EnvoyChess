@@ -27,9 +27,16 @@
   var RULES = {
     name: 'Envoy Chess',
 
-    // Starting position (FEN). The envoy 'E'/'e' replaces White's dark-squared
-    // bishop (c1) and Black's light-squared bishop (c8).
-    startFEN: 'rneqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNEQKBNR w KQkq - 0 1',
+    // Starting position (FEN): the normal chess army. The last field "Ee" means
+    // both envoys start in hand, off the board (see envoyDrop below).
+    // (Fields 7 and 8 are the envoy cooldowns and choices.)
+    startFEN: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 0,0 -,- Ee',
+
+    // ENVOY DROP: a side whose envoy is still in hand must place it as its
+    // move, on any empty square of its drop rank (White: rank 3, Black: rank 6).
+    // With the start position above, that is each side's first move.
+    // enabled: false (and envoys on the board in startFEN) = the envoy starts on a square.
+    envoyDrop: { enabled: true, ranks: { w: [3], b: [6] } },
 
     // Values used to compute each side's "strength" (sum of its pieces).
     pieceValues: { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0, e: 0 },
@@ -42,7 +49,12 @@
       bishop: [{ slide: DIAG }],
       rook:   [{ slide: ORTHO }],
       queen:  [{ slide: ORTHO.concat(DIAG) }],
-      amazon: [{ slide: ORTHO.concat(DIAG) }, { leap: KNIGHT_JUMPS }]  // queen + knight
+      amazon: [{ slide: ORTHO.concat(DIAG) }, { leap: KNIGHT_JUMPS }],  // queen + knight
+      // envoy-only movements: each keeps the king's step, so a stronger tier
+      // can always do everything a weaker one could
+      centaur:     [{ leap: ORTHO.concat(DIAG) }, { leap: KNIGHT_JUMPS }],  // king + knight
+      dragonHorse: [{ slide: DIAG }, { leap: ORTHO }],                       // king + bishop
+      dragonKing:  [{ slide: ORTHO }, { leap: DIAG }]                        // king + rook
     },
 
     // How the ordinary pieces move (pawns and castling are built into the engine).
@@ -50,7 +62,8 @@
 
     // Human-readable names (used in the UI and the rules screen).
     pieceNames: { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen', k: 'King', e: 'Envoy' },
-    movementNames: { king: 'King', knight: 'Knight', bishop: 'Bishop', rook: 'Rook', queen: 'Queen', amazon: 'Amazon (Queen + Knight)' },
+    movementNames: { king: 'King', knight: 'Knight', bishop: 'Bishop', rook: 'Rook', queen: 'Queen', amazon: 'Amazon (Queen + Knight)',
+      centaur: 'Centaur (King + Knight)', dragonHorse: 'Dragon horse (King + Bishop)', dragonKing: 'Dragon king (King + Rook)' },
 
     // Pieces a pawn may promote to (the envoy is deliberately not included).
     promotionPieces: ['q', 'r', 'b', 'n'],
@@ -91,8 +104,10 @@
       // DIPLOMATIC DISTANCE: the envoy may never move onto a square next to the
       // enemy king (Chebyshev distance must stay >= this number). Stops the
       // invulnerable envoy from simply walking up and smothering the king.
+      // 2 = not next to the king; 3 = at least two squares away, so there
+      // is always a free ring between the envoy and the enemy king.
       // null = no restriction.
-      minKingDistance: 2,
+      minKingDistance: 3,
 
       // Movement tiers, checked top to bottom; the first tier whose
       // minDeficit <= your deficit applies.
@@ -100,11 +115,13 @@
       // With 'choice', the envoy picks one of the options (see `chooseBy`).
       // The choice lasts while the side stays in the tier; leaving and
       // re-entering the tier makes the envoy free to choose again.
+      // Every tier keeps the king's step, so the envoy only ever gains power
+      // as its side falls further behind.
       tiers: [
-        { minDeficit: 12, movement: 'amazon' },                       // weaker by more than 11
+        { minDeficit: 12, movement: 'amazon' },                       // weaker by 12 or more
         { minDeficit: 9,  movement: 'queen' },                        // weaker by 9 – 11
-        { minDeficit: 5,  movement: 'rook' },                         // weaker by 5 – 8
-        { minDeficit: 3,  movement: 'choice', options: ['knight', 'bishop'] }, // weaker by 3 – 4
+        { minDeficit: 5,  movement: 'dragonKing' },                   // weaker by 5 – 8
+        { minDeficit: 3,  movement: 'choice', options: ['centaur', 'dragonHorse'] }, // weaker by 3 – 4
         { minDeficit: -Infinity, movement: 'king' }                   // weaker by 2 or less / equal / stronger
       ],
 
@@ -119,7 +136,9 @@
       //   'move' -> no declaration (default). Until it moves, the envoy may move like
       //             ANY of the options; its first move in the tier (e.g. a
       //             knight jump) fixes that movement for as long as the side
-      //             stays in the tier. Moving other pieces fixes nothing.
+      //             stays in the tier. A move that more than one option allows
+      //             (e.g. a one-square king step) fixes nothing, and neither
+      //             does moving other pieces.
       //   'turn' -> the player declares an option at the start of the
       //             first turn in the tier, before moving.
       chooseBy: 'move'
@@ -163,6 +182,9 @@
     //  Draw rules
     // ------------------------------------------------------------------------
     draws: {
+      // 'loss' = the stalemated side loses; 'draw' = normal chess.
+      // (Stalemate is rare here: a side can almost always sacrifice a piece.)
+      stalemate: 'loss',
       fiftyMoveRule: true,       // 50 moves each without a capture or pawn move
       threefoldRepetition: true  // same position (incl. envoy state) 3 times
     }
