@@ -33,7 +33,7 @@
     },
     // How much the AI values its envoy in each movement mode (centipawns).
     // The envoy is worth 0 "strength", but a strong envoy is still useful.
-    envoyModeValue: { king: 80, knight: 230, bishop: 230, rook: 380, queen: 650, amazon: 900, centaur: 300, dragonHorse: 330, dragonKing: 520, pending: 330 },
+    envoyModeValue: { king: 80, knight: 230, bishop: 230, rook: 380, queen: 650, amazon: 900, centaur: 300, dragonHorse: 330, dragonKing: 520, cardinal: 600, pending: 330 },
     envoyCaptureBonus: 40,     // extra when the envoy may capture
     envoyNearKingBonus: 14,    // per step closer to the enemy king (envoys can deliver mate)
     envoyCenter: 3,            // per step towards the centre (also decides where to place an envoy in hand)
@@ -180,6 +180,7 @@
       for (var i = 0; i < moves.length; i++) {
         var child = E.applyMove(st, moves[i]);
         if (E.inCheck(child, st.turn)) continue;
+        if (useNN) child._par = st;   // lets the network update its accumulators incrementally
         var sc = -quiesce(child, -beta, -alpha, qd - 1, ply + 1);
         if (sc > best) best = sc;
         if (sc > alpha) alpha = sc;
@@ -200,6 +201,7 @@
         var child = E.applyMove(st, moves[i]);
         if (E.inCheck(child, st.turn)) continue;
         legal++;
+        if (useNN) child._par = st;
         var sc = -negamax(child, depth - 1, -beta, -alpha, ply + 1);
         if (sc > best) best = sc;
         if (sc > alpha) alpha = sc;
@@ -221,6 +223,7 @@
         var alpha = -Infinity, results = [];
         for (var i = 0; i < scored.length; i++) {
           var child = E.applyMove(rootState, scored[i].m);
+          if (useNN) child._par = rootState;
           var sc = seen && seen[E.positionKey(child)] ? 0
             // window widened by 2*noise so every move that could win after
             // adding noise gets an exact score (not just a bound)

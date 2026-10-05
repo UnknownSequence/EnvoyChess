@@ -13,7 +13,7 @@
   var STORAGE_KEY = 'equalizer-chess-save';
   var sacMode = false;       // clicking one of your pieces sacrifices it
   var COLOR_NAME = { w: 'White', b: 'Black' };
-  var MOVE_LETTER = { king: 'K', knight: 'N', bishop: 'B', rook: 'R', queen: 'Q', amazon: 'A', centaur: 'N+', dragonHorse: 'B+', dragonKing: 'R+' };
+  var MOVE_LETTER = { king: 'K', knight: 'N', bishop: 'B', rook: 'R', queen: 'Q', amazon: 'A', centaur: 'N+', dragonHorse: 'B+', dragonKing: 'R+', cardinal: 'NB' };
 
   // ------------------------------------------------------------------ state
   var settings = { mode: 'local', side: 'w', humanColor: 'w', level: 2, sound: true };
@@ -190,12 +190,18 @@
       parts.push('Moves like a <span class="em">' + movementName(info.movement) + '</span>' +
         (info.tier.movement === 'choice' ? (R.envoy.chooseBy === 'move' ? ' (chosen)' : ' (declared)') : ''));
     }
-    if (info.powerDeficit < info.deficit) parts.push('<span class="cool">power capped by its army</span>');
+    if (heldBack(info)) parts.push('<span class="cool">' + (R.envoy.powerCap != null && !info.sacrificed ? 'power capped by its army' : 'own sacrifices don\'t power it') + '</span>');
     parts.push(info.canCapture ? '<span class="cap">can capture</span>' : 'cannot capture');
     if (R.envoy.capturable === 'whenArmed') parts.push(info.canCapture ? '<span class="cap">can be captured</span>' : 'immune');
-    if (info.cooldown > 0) parts.push('<span class="cool">' + (st.turn === c ? 'cooling down' : 'rests next turn') + '</span>');
+    if (info.cooldown > 0) parts.push('<span class="cool">' + (st.turn === c ? 'frozen this turn' : 'frozen next turn') + '</span>');
     else if (R.envoy.cooldownTurns > 0 || R.envoy.tiers.some(function (t) { return t.cooldownTurns > 0; })) parts.push('ready');
     return parts.join(' · ');
+  }
+
+  /** Is this envoy weaker than the plain "behind by" would make it (own sacrifices / cap)? */
+  function heldBack(info) {
+    return info.powerDeficit < info.deficit &&
+      (E.tierAt(info.deficit) !== info.tier || (info.deficit >= R.envoy.captureMinDeficit && !info.canCapture));
   }
 
   function playerLabel(c) {
@@ -321,7 +327,7 @@
     var sacBtn = $('btn-sac');
     if (sacBtn) {
       sacBtn.disabled = !canSacrifice();
-      sacBtn.title = sacBtn.disabled ? 'No sacrifice possible now (in check, a capture is compulsory, or not your turn)' : 'Remove one of your own pieces instead of moving (S)';
+      sacBtn.title = sacBtn.disabled ? 'No sacrifice possible now (in check' + (R.forcedCapture ? ', a capture is compulsory' : '') + ', or not your turn)' : 'Remove one of your own pieces instead of moving (S)';
       if (sacBtn.disabled && sacMode) { sacMode = false; sacBtn.classList.remove('confirm'); }
     }
     $('btn-draw').disabled = s.over || !moves.length;
@@ -401,7 +407,7 @@
     ['w', 'b'].forEach(function (c) {
       if (!E.hasEnvoy(st, c)) return;
       var i = E.envoyInfo(st, c);
-      out[c] = { movement: i.movement, pending: i.pending, canCapture: i.canCapture, deficit: i.deficit, tier: i.tier, capped: i.powerDeficit < i.deficit, strength: i.strength };
+      out[c] = { movement: i.movement, pending: i.pending, canCapture: i.canCapture, deficit: i.deficit, tier: i.tier, capped: heldBack(i), sacrificed: i.sacrificed, strength: i.strength };
     });
     return out;
   }
@@ -411,8 +417,9 @@
       var a = before[c], b = after[c];
       if (!a || !b) return;
       if (b.capped && !a.capped) {
-        toast(COLOR_NAME[c] + '\'s envoy is capped by ' + COLOR_NAME[c] + '\'s remaining army (strength ' + b.strength +
-          '). Sacrificing more will not make it stronger.');
+        toast(R.envoy.powerCap != null && !b.sacrificed
+          ? COLOR_NAME[c] + '\'s envoy is capped by ' + COLOR_NAME[c] + '\'s remaining army (strength ' + b.strength + ').'
+          : COLOR_NAME[c] + ' has sacrificed ' + b.sacrificed + ' points. Sacrificed material does not count for ' + COLOR_NAME[c] + '\'s own envoy, so it does not get stronger.');
       } else if (a.tier !== b.tier) {
         var what = b.pending ? (R.envoy.chooseBy === 'move' ? 'may now move like a ' + b.tier.options.map(movementName).join(' or ') + ' (a knight jump or long diagonal move decides)' : 'must now declare ' + b.tier.options.map(movementName).join(' or '))
                              : 'now moves like a ' + movementName(b.movement);
@@ -433,7 +440,11 @@
     $('promo').classList.add('hidden');
     sacMode = false;
     if ($('btn-sac')) $('btn-sac').classList.remove('confirm');
-    if (done.sacrifice) toast(COLOR_NAME[done.piece[0]] + ' sacrificed ' + (done.piece[1] === 'p' ? 'a pawn' : 'the ' + R.pieceNames[done.piece[1]].toLowerCase()) + ' on ' + E.sqName(done.from));
+    if (done.sacrifice) {
+      var foe = E.opp(done.piece[0]), frozen = R.sacrifice.freezeEnemyEnvoy && E.hasEnvoy(game.state(), foe);
+      toast(COLOR_NAME[done.piece[0]] + ' sacrificed ' + (done.piece[1] === 'p' ? 'a pawn' : 'the ' + R.pieceNames[done.piece[1]].toLowerCase()) + ' on ' + E.sqName(done.from) +
+        (frozen ? '. ' + COLOR_NAME[foe] + '\'s envoy is frozen and cannot move next turn' : ''));
+    }
     if (done.declare && R.envoy.chooseBy === 'move') {
       toast(COLOR_NAME[done.piece[0]] + '\'s envoy moved like a ' + movementName(done.declare).toLowerCase() + ' and keeps that movement while the gap stays in this range');
     } else if (done.declare && settings.mode === 'ai' && done.piece[0] !== settings.humanColor) {
@@ -822,14 +833,22 @@
       (ev.givesCheck === 'whenArmed'
         ? '<li>It may give check only while it is allowed to capture.</li>'
         : ev.givesCheck ? '<li>It <b>is allowed to give check</b>, even while it is not allowed to capture: a king may not move onto a square the enemy envoy attacks.' +
-          (ev.capturable ? '' : ' Because the envoy cannot be captured, a check from it must be answered by moving the king or blocking.') + '</li>' : '') +
+          (ev.capturable ? '' : ' Because the envoy cannot be captured, a check from it must be answered by moving the king or blocking.') + '</li>'
+        : '<li>It <b>never gives check</b>: it can never check or checkmate the king, and the enemy king may stand right next to it. ' +
+          (ev.capturable ? '' : 'The king still cannot capture it, so the king can never move onto the envoy\'s square. ') +
+          'Its attacks do not count against the king at all: the king may step onto squares the envoy attacks, and may capture a piece standing next to it even if the envoy "guards" that piece. ' +
+          '(For example, a queen next to the king that only the envoy guards is not checkmate: the king simply takes the queen.) ' +
+          'The envoy can still help an attack by capturing defenders or standing on a square the king would like to escape to.</li>') +
       (cd > 0 ? '<li><b>Cooldown:</b> after the envoy moves, it must sit out your next ' + (cd === 1 ? 'turn' : cd + ' turns') +
         (ev.cooldownResetOnOpponentCapture ? ', <i>unless</i> your opponent captures one of your pieces in between, which makes it ready again at once' : '') + '.</li>' : '') +
       '<li>How it moves depends on how far behind its side is:</li></ul>' +
       '<table><tr><th>Behind by</th><th>Envoy moves like</th></tr>' + tierRows + '</table>' +
-      '<p class="note">' + (tiers.some(function (t) { return t.movement === 'dragonKing' || (t.options || []).indexOf('centaur') >= 0; })
-        ? 'Every row keeps the king\'s one-square step, so the envoy only ever gains moves as its side falls further behind. ' : '') +
+      '<p class="note">' + (tiers.some(function (t) { return t.movement === 'cardinal' || (t.options || []).indexOf('centaur') >= 0; })
+        ? 'Each row can make every move of the rows below it, so the envoy only ever gains moves as its side falls further behind; it never swaps one ability for another. ' : '') +
       'Amazon = queen + knight. Being ahead or equal counts as "behind by 0 or less".</p>' +
+      (!ev.ownSacrificesPower && R.sacrifice && R.sacrifice.enabled ? '<p><b>Counting "behind by" for your envoy:</b> material you <i>sacrificed yourself</i> is left out. ' +
+        'Example: you sacrificed a rook (5) and are now 7 behind; your envoy moves as if you were 2 behind. Every piece your <i>opponent</i> captures counts in full, so losing material to captures always makes your envoy stronger (or keeps it the same). ' +
+        'This stops a player from giving away all their pieces to get a huge envoy.</p>' : '') +
       (ev.powerCap != null ? '<p><b>Counting "behind by" for the envoy:</b> the gap can count for at most ' +
         (ev.powerCap === 1 ? 'your own remaining strength' : ev.powerCap + ' times your own remaining strength') +
         '. Example: your pieces add up to 3 and you are 20 behind; your envoy moves as if you were only 3 behind. This stops a player from giving away all their pieces to get a huge envoy. (Capturing still only needs your side to be behind.)</p>' : '') +
@@ -849,11 +868,14 @@
                 '<li><b>Before the choice:</b> the envoy may make any move that either movement allows, captures included: a one-square step in any direction, a knight jump, or a diagonal move of any length.</li>' +
                 '<li><b>What makes the choice:</b> the first envoy move that only one of the two allows. A <b>knight jump</b> chooses king + knight. A <b>diagonal move of two or more squares</b> chooses king + bishop. Captures count the same way.</li>' +
                 '<li><b>What does not:</b> a one-square step or one-square capture (both movements allow it), moving any other piece, or a sacrifice. So you may put the choice off for as long as you like.</li>' +
-                (ev.undeclaredCheckPattern === 'union' ? '<li><b>Check while undecided:</b> the envoy attacks along both patterns at once (one-square steps, knight jumps and diagonals), so the enemy king may not step onto any of those squares, and a check along either pattern must be answered.</li>' : '') +
+                (ev.undeclaredCheckPattern === 'union' && ev.givesCheck ? '<li><b>Check while undecided:</b> the envoy attacks along both patterns at once (one-square steps, knight jumps and diagonals), so the enemy king may not step onto any of those squares, and a check along either pattern must be answered.</li>' : '') +
                 '<li><b>After the choice:</b> the envoy moves only that way, with the one-square step still available, for as long as your side stays ' + range + ' behind.</li>' +
                 '<li><b>Leaving the range:</b> if the gap is no longer ' + range + ' (for example after a capture or a sacrifice), the choice is wiped. If your side comes back into the range later, the envoy is free to choose again.</li>' +
+                '<li><b>Capturing can end the choice:</b> every capture your side makes, <i>including one by the envoy itself</i>, makes you less behind. If a capture brings the gap below ' + ct.minDeficit + ', the envoy goes back to moving like a ' + movementName(tiers[i + 1].movement).toLowerCase() + ' and loses the knight and bishop moves, whether or not it had already chosen. It regains them only if your side falls ' + ct.minDeficit + ' or more behind again. ' +
+                'So think before capturing with an undecided envoy: taking a pawn when you are 4 behind keeps the choice, but taking a knight leaves you only 1 behind.</li>' +
                 '<li><b>On screen:</b> the envoy\'s badge shows an orange <b>?</b> while it has not chosen, then <b>N+</b> or <b>B+</b>. The deciding move is tagged in the move list, for example <code>E=N+</code>.</li></ul>' +
-                '<p class="note">Example: White is 4 behind and its undecided envoy stands on d4. <code>Exd5</code> (one square) keeps the choice open, <code>Ef5</code> (a knight jump) chooses king + knight, and <code>Eg7</code> (a long diagonal) chooses king + bishop.</p>';
+                '<p class="note">Example: White is 4 behind and its undecided envoy stands on d4. <code>Ed5</code> (one square) keeps the choice open, <code>Ef5</code> (a knight jump) chooses king + knight, and <code>Eg7</code> (a long diagonal) chooses king + bishop. ' +
+                'If a black pawn stood on d5, <code>Exd5</code> would leave White 3 behind and the choice would stay open. If it were a black knight, <code>Exd5</code> would leave White only 1 behind, and the envoy would move like a king from then on.</p>';
             })()
           : '<p><b>Declaring:</b> on the first turn your side is in a "declare" range, you choose one of the options before moving. ' +
             'You may then move the envoy or any other piece. The choice stays until your side leaves that range; if you come back later you declare again. ' +
@@ -866,10 +888,15 @@
         : R.forcedCapture ? '<h3>Compulsory captures</h3><p>If you can capture, you <b>must</b> capture (you choose which). The only exception is when your king is in check.</p>' : '') +
       (R.sacrifice && R.sacrifice.enabled ? '<h3>Sacrifice</h3><p>Instead of moving, you may <b>sacrifice</b> one of your own pieces (' +
           R.sacrifice.pieces.map(function (t) { return R.pieceNames[t].toLowerCase(); }).join(', ') + '): it is removed from the board and your turn ends. ' +
-          'Use the <b>Sacrifice</b> button under the move list (or press S), then click the piece. Not allowed while in check, while a capture is compulsory, or if it would expose your king. It is written like <code>Sac:Nf3</code>.</p>' +
-          '<p class="note">Why sacrifice? Your strength drops, so a side that is behind you becomes <i>less</i> behind and <b>its envoy gets weaker</b>. It can also open lines for your other pieces. But too much sacrifice is bad: a side left with only king and envoy loses.</p>' : '') +
+          'Use the <b>Sacrifice</b> button under the move list (or press S), then click the piece. Not allowed while in check' + (R.forcedCapture ? ', while a capture is compulsory,' : '') + ' or if it would expose your king. It is written like <code>Sac:Nf3</code>.</p>' +
+          (R.sacrifice.freezeEnemyEnvoy ? '<p><b>A sacrifice freezes the enemy envoy:</b> after you sacrifice, your opponent\'s envoy may not move on ' +
+            (R.sacrifice.freezeEnemyEnvoy > 1 ? 'their next ' + R.sacrifice.freezeEnemyEnvoy + ' turns' : 'their next turn') + ' (it shows an hourglass ⌛). Their other pieces move as normal.' + (ev.givesCheck ? ' A frozen envoy still attacks the squares around it, so it can still give check, and your king still may not step onto a square it attacks.' : '') + '</p>' : '') +
+          '<p class="note">Why sacrifice? Your strength drops, so a side that is behind you becomes <i>less</i> behind and <b>its envoy gets weaker</b>. It can also open lines for your other pieces. ' +
+          (ev.ownSacrificesPower ? 'It also puts <i>you</i> further behind, so <b>your own envoy gets stronger</b>. '
+            : 'It never makes <i>your own</i> envoy stronger: sacrificed material is not counted for it. ') +
+          'But too much sacrifice is risky: a side left with only king and envoy loses' + (ev.minKingDistance ? ', and the envoy can never go near the enemy king' : '') + '.</p>' : '') +
       (R.loseWithOnly ? '<h3>Running out of pieces</h3><p>A side left with <b>only its ' + R.loseWithOnly.map(function (t) { return R.pieceNames[t].toLowerCase(); }).join(' and ') +
-        '</b> loses immediately. Sacrificing every piece to power up the envoy does not work: you must keep at least one other piece.</p>' : '') +
+        '</b> loses immediately: you must keep at least one other piece.</p>' : '') +
       (R.draws.stalemate === 'loss' ? '<h3>Stalemate loses</h3><p>A player who is <b>not in check but has no legal move</b> loses (in normal chess this is a draw). ' +
         'It is rare, because you can almost always sacrifice a piece instead of moving: every remaining piece must be pinned to your king (so removing it would expose the king), and your king and envoy must have no moves.</p>' : '') +
       '<h3>Draws</h3><ul>' + (R.draws.stalemate === 'loss' ? '' : '<li>Stalemate</li>') + (R.draws.threefoldRepetition ? '<li>Threefold repetition (automatic)</li>' : '') +

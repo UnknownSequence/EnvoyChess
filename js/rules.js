@@ -54,7 +54,8 @@
       // can always do everything a weaker one could
       centaur:     [{ leap: ORTHO.concat(DIAG) }, { leap: KNIGHT_JUMPS }],  // king + knight
       dragonHorse: [{ slide: DIAG }, { leap: ORTHO }],                       // king + bishop
-      dragonKing:  [{ slide: ORTHO }, { leap: DIAG }]                        // king + rook
+      dragonKing:  [{ slide: ORTHO }, { leap: DIAG }],                       // king + rook
+      cardinal:    [{ slide: DIAG }, { leap: ORTHO }, { leap: KNIGHT_JUMPS }] // king + knight + bishop
     },
 
     // How the ordinary pieces move (pawns and castling are built into the engine).
@@ -63,7 +64,8 @@
     // Human-readable names (used in the UI and the rules screen).
     pieceNames: { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen', k: 'King', e: 'Envoy' },
     movementNames: { king: 'King', knight: 'Knight', bishop: 'Bishop', rook: 'Rook', queen: 'Queen', amazon: 'Amazon (Queen + Knight)',
-      centaur: 'Centaur (King + Knight)', dragonHorse: 'Dragon horse (King + Bishop)', dragonKing: 'Dragon king (King + Rook)' },
+      centaur: 'Centaur (King + Knight)', dragonHorse: 'Dragon horse (King + Bishop)', dragonKing: 'Dragon king (King + Rook)',
+      cardinal: 'Cardinal (King + Knight + Bishop)' },
 
     // Pieces a pawn may promote to (the envoy is deliberately not included).
     promotionPieces: ['q', 'r', 'b', 'n'],
@@ -82,10 +84,13 @@
       // (1 = "whenever you are the weaker side").
       captureMinDeficit: 1,
 
-      // Do the envoy's attacks count as check?  true = always (even when it is
-      // not allowed to capture), false = never, 'whenArmed' = only while it
-      // may capture.
-      givesCheck: true,
+      // Do the envoy's attacks count as check?
+      //   false       = (default) never: the envoy can never check or checkmate
+      //                 the king, and the king may stand right next to it
+      //                 ("diplomatic immunity both ways")
+      //   true        = always (even when it is not allowed to capture)
+      //   'whenArmed' = only while it may capture
+      givesCheck: false,
 
       // After the envoy moves it must sit out this many of its own turns...
       // 0 = no cooldown, the envoy may move every turn.
@@ -94,20 +99,29 @@
       cooldownResetOnOpponentCapture: true,
       // (A tier below may also set its own `cooldownTurns`, e.g. 2 for the amazon.)
 
-      // POWER CAP: the deficit that powers the envoy counts at most
-      // powerCap x your own remaining strength. An envoy with no army behind it
-      // has no power: sacrificing everything does NOT create a monster envoy.
-      // Example: you have 3 points left and are 30 behind -> the envoy acts as
-      // if you were 3 behind (knight/bishop). null = no cap.
-      powerCap: 1,
+      // DO YOUR OWN SACRIFICES POWER YOUR ENVOY?
+      // true  = (default) yes: sacrificed material counts like any other loss,
+      //         so falling further behind ALWAYS makes your envoy stronger (or
+      //         keeps it the same), however it happened. Sacrificing everything
+      //         for a monster envoy is allowed but risky: a side left with only
+      //         king + envoy loses, and the envoy must keep its distance from the
+      //         enemy king.
+      // false = no: material you sacrificed yourself is left out for your own
+      //         envoy (it still counts against the opponent's envoy).
+      ownSacrificesPower: true,
 
-      // DIPLOMATIC DISTANCE: the envoy may never move onto a square next to the
-      // enemy king (Chebyshev distance must stay >= this number). Stops the
-      // invulnerable envoy from simply walking up and smothering the king.
+      // POWER CAP (old rule, off): the deficit that powers the envoy counts at
+      // most powerCap x your own remaining strength. Not recommended: once the
+      // cap bites, every further piece you lose LOWERS the cap, so falling
+      // further behind makes the envoy weaker. null = no cap.
+      powerCap: null,
+
+      // DIPLOMATIC DISTANCE: the envoy may never move onto a square closer to
+      // the enemy king than this (Chebyshev distance must stay >= this number).
       // 2 = not next to the king; 3 = at least two squares away, so there
       // is always a free ring between the envoy and the enemy king.
-      // null = no restriction.
-      minKingDistance: 3,
+      // null = (default) no restriction: the envoy may walk right up to the king.
+      minKingDistance: null,
 
       // Movement tiers, checked top to bottom; the first tier whose
       // minDeficit <= your deficit applies.
@@ -115,13 +129,14 @@
       // With 'choice', the envoy picks one of the options (see `chooseBy`).
       // The choice lasts while the side stays in the tier; leaving and
       // re-entering the tier makes the envoy free to choose again.
-      // Every tier keeps the king's step, so the envoy only ever gains power
-      // as its side falls further behind.
+      // The tiers are NESTED: each one can make every move of the tiers below
+      // it (including both options of the choice tier), so the envoy only ever
+      // gains moves as its side falls further behind - it never swaps one
+      // ability for another. (tests/engine.test.js checks this.)
       tiers: [
-        { minDeficit: 12, movement: 'amazon' },                       // weaker by 12 or more
-        { minDeficit: 9,  movement: 'queen' },                        // weaker by 9 – 11
-        { minDeficit: 5,  movement: 'dragonKing' },                   // weaker by 5 – 8
-        { minDeficit: 3,  movement: 'choice', options: ['centaur', 'dragonHorse'] }, // weaker by 3 – 4
+        { minDeficit: 9,  movement: 'amazon' },                       // weaker by 9 or more: + rook lines
+        { minDeficit: 5,  movement: 'cardinal' },                     // weaker by 5 – 8: knight AND bishop
+        { minDeficit: 3,  movement: 'choice', options: ['centaur', 'dragonHorse'] }, // weaker by 3 – 4: knight OR bishop
         { minDeficit: -Infinity, movement: 'king' }                   // weaker by 2 or less / equal / stronger
       ],
 
@@ -147,14 +162,14 @@
     // ------------------------------------------------------------------------
     //  Compulsory captures
     // ------------------------------------------------------------------------
-    //   false     = captures are never compulsory (normal chess)
+    //   false     = (default) captures are never compulsory (normal chess)
     //   true      = any capture is compulsory
-    //   'upward'  = (default) a capture is compulsory only when a WEAKER piece can take
+    //   'upward'  = a capture is compulsory only when a WEAKER piece can take
     //               a STRONGER one (by pieceValues, e.g. pawn takes knight,
     //               knight takes rook). Then you must make one such capture
     //               (you choose which). Equal trades and downward captures stay optional.
     // Exception: when your king is in check you may answer the check any legal way.
-    forcedCapture: 'upward',
+    forcedCapture: false,
     // Pieces whose captures never count as "weaker takes stronger"
     // (their value is 0, so otherwise every capture they make would be forced).
     forcedCaptureExempt: ['k', 'e'],
@@ -164,11 +179,18 @@
     // ------------------------------------------------------------------------
     // Instead of moving, a player may remove one of their own pieces from the
     // board. This uses the turn. It lowers your strength, which shrinks the
-    // opponent's deficit (weakening THEIR envoy) or grows yours. Not allowed
+    // opponent's deficit (weakening THEIR envoy) and grows yours (strengthening
+    // your own envoy; see envoy.ownSacrificesPower). Not allowed
     // while in check or while a capture is compulsory, and not if removing the
     // piece would expose your own king. Sacrificing your last piece besides
     // king + envoy loses the game (see loseWithOnly).
-    sacrifice: { enabled: true, pieces: ['p', 'n', 'b', 'r', 'q'] },
+    sacrifice: {
+      enabled: true,
+      pieces: ['p', 'n', 'b', 'r', 'q'],
+      // After you sacrifice, the ENEMY envoy may not move on the enemy's next
+      // turn (it still gives check). 0 = off; 2 = its next two turns, etc.
+      freezeEnemyEnvoy: 1
+    },
 
     // ------------------------------------------------------------------------
     //  Running out of pieces

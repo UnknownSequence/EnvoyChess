@@ -45,6 +45,7 @@
      *   7th field: envoy cooldowns  "w,b"   e.g. "1,0"
      *   8th field: declarations     "w,b"   e.g. "knight,-"
      *   9th field: envoys still in hand (not yet placed)  e.g. "Ee", "e" or "-"
+     *  10th field: material each side has sacrificed "w,b" e.g. "1,0"
      */
     function fromFEN(fen) {
       var parts = fen.trim().split(/\s+/);
@@ -65,6 +66,7 @@
       var cd = (parts[6] || '0,0').split(',');
       var dc = (parts[7] || '-,-').split(',');
       var hand = parts[8] || '-';
+      var sc = (parts[9] || '0,0').split(',');
       var st = {
         board: board,
         turn: parts[1] || 'w',
@@ -75,6 +77,7 @@
         cooldown: { w: parseInt(cd[0], 10) || 0, b: parseInt(cd[1], 10) || 0 },
         declared: { w: dc[0] && dc[0] !== '-' ? dc[0] : null, b: dc[1] && dc[1] !== '-' ? dc[1] : null },
         inHand: { w: hand.indexOf('E') >= 0 ? 1 : 0, b: hand.indexOf('e') >= 0 ? 1 : 0 },
+        sacrificed: { w: parseInt(sc[0], 10) || 0, b: parseInt(sc[1], 10) || 0 },
         lastMove: null,
         lastCapture: false
       };
@@ -103,7 +106,9 @@
         ' ' + st.halfmove + ' ' + st.fullmove;
       if (withEnvoyFields !== false) {
         fen += ' ' + st.cooldown.w + ',' + st.cooldown.b + ' ' + (st.declared.w || '-') + ',' + (st.declared.b || '-');
-        if (st.inHand.w || st.inHand.b) fen += ' ' + (st.inHand.w ? 'E' : '') + (st.inHand.b ? 'e' : '');
+        var sac = st.sacrificed || { w: 0, b: 0 };
+        if (st.inHand.w || st.inHand.b || sac.w || sac.b) fen += ' ' + ((st.inHand.w ? 'E' : '') + (st.inHand.b ? 'e' : '') || '-');
+        if (sac.w || sac.b) fen += ' ' + sac.w + ',' + sac.b;
       }
       return fen;
     }
@@ -133,20 +138,26 @@
     function deficit(st, c) { return strength(st, opp(c)) - strength(st, c); }
 
     /**
-     * The deficit that powers the envoy. With envoy.powerCap set, it can be at
-     * most powerCap x (your own strength): an envoy with no army behind it has
-     * no power, so sacrificing everything does not create a monster envoy.
+     * The deficit that powers the envoy.
+     *  - Unless envoy.ownSacrificesPower is true, material side c sacrificed
+     *    itself is not counted, so sacrificing cannot grow your own envoy, while
+     *    every piece the opponent captures always raises it.
+     *  - With envoy.powerCap set (old rule), it is at most powerCap x (your own
+     *    strength).
      */
     function powerDeficit(st, c) {
       var d = deficit(st, c), cap = R.envoy.powerCap;
+      if (!R.envoy.ownSacrificesPower && st.sacrificed) d -= st.sacrificed[c] || 0;
       if (cap != null) d = Math.min(d, cap * strength(st, c));
       return d;
     }
-    function tierFor(st, c) {
-      var d = powerDeficit(st, c), tiers = R.envoy.tiers;
+    /** The tier for a given (power) deficit. */
+    function tierAt(d) {
+      var tiers = R.envoy.tiers;
       for (var i = 0; i < tiers.length; i++) if (d >= tiers[i].minDeficit) return tiers[i];
       return tiers[tiers.length - 1];
     }
+    function tierFor(st, c) { return tierAt(powerDeficit(st, c)); }
 
     var compCache = {};
     function componentsOf(names) {
@@ -194,6 +205,7 @@
         movement: movement,
         pending: pending,
         powerDeficit: pd,
+        sacrificed: st.sacrificed ? st.sacrificed[c] : 0,
         canCapture: pd >= R.envoy.captureMinDeficit,
         cooldown: st.cooldown[c],
         ready: st.cooldown[c] <= 0,
@@ -508,6 +520,7 @@
         cooldown: { w: st.cooldown.w, b: st.cooldown.b },
         declared: { w: st.declared.w, b: st.declared.b },
         inHand: { w: st.inHand.w, b: st.inHand.b },
+        sacrificed: { w: st.sacrificed.w, b: st.sacrificed.b },
         lastMove: st.lastMove,
         lastCapture: st.lastCapture,
         str: st.str ? { w: st.str.w, b: st.str.b } : null
@@ -536,6 +549,7 @@
       if (m.sacrifice) {                       // the piece simply leaves the board
         b[m.from] = null;
         if (n.str) n.str[us] -= R.pieceValues[piece[1]] || 0;
+        n.sacrificed[us] += R.pieceValues[piece[1]] || 0;
         n.turn = them; n.ep = -1; n.halfmove = 0;
         if (us === 'b') n.fullmove++;
         n.lastMove = { from: m.from, to: m.from, sacrifice: true };
@@ -545,6 +559,9 @@
         if (m.from === 56) n.castling.q = false;
         if (m.from === 63) n.castling.k = false;
         if (n.cooldown[us] > 0) n.cooldown[us]--;
+        // a sacrifice freezes the enemy envoy for its next turn(s)
+        var freeze = (R.sacrifice && R.sacrifice.freezeEnemyEnvoy) || 0;
+        if (freeze > n.cooldown[them]) n.cooldown[them] = freeze;
         normalizeDeclarations(n);
         return n;
       }
@@ -630,7 +647,8 @@
       var b = st.board.map(function (p) { return p || '.'; }).join('');
       var c = st.castling;
       return b + st.turn + (c.K ? 1 : 0) + (c.Q ? 1 : 0) + (c.k ? 1 : 0) + (c.q ? 1 : 0) + st.ep +
-        '|' + st.cooldown.w + st.cooldown.b + '|' + st.declared.w + st.declared.b + '|' + st.inHand.w + st.inHand.b;
+        '|' + st.cooldown.w + st.cooldown.b + '|' + st.declared.w + st.declared.b + '|' + st.inHand.w + st.inHand.b +
+        '|' + st.sacrificed.w + ',' + st.sacrificed.b;
     }
 
     function Game(fen) {
@@ -721,7 +739,7 @@
       create: create,
       opp: opp, sqName: sqName, parseSq: parseSq,
       fromFEN: fromFEN, toFEN: toFEN,
-      strength: strength, deficit: deficit, powerDeficit: powerDeficit, tierFor: tierFor,
+      strength: strength, deficit: deficit, powerDeficit: powerDeficit, tierFor: tierFor, tierAt: tierAt,
       envoyInfo: envoyInfo, needsDeclaration: needsDeclaration, hasEnvoy: hasEnvoy, dropSquares: dropSquares,
       isAttacked: isAttacked, inCheck: inCheck, findKing: findKing,
       pseudoMoves: pseudoMoves, legalMoves: legalMoves, applyMove: applyMove, withDeclaration: withDeclaration,
