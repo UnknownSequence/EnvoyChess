@@ -320,3 +320,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .legend-intro { margin: 0 0 8px; font-size: 12.5px; color: var(--text); }
 .legend li > span:last-child { min-width: 0; }
+
+/* envoy drop: faint envoys on the squares where it may be placed */
+.piece.drop-ghost { opacity: .32; pointer-events: none; }
