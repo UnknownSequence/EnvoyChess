@@ -18,13 +18,26 @@ var V = {};
 V.current = function () { return withRules(); };
 // one change at a time
 V.allCapturesForced = function () { return withRules({ forcedCapture: true }); };
-V.noForcedCaptures = function () { return withRules({ forcedCapture: false }); };
+V.upwardCaptures = function () { return withRules({ forcedCapture: 'upward' }); };  // the old "weaker takes stronger" rule
 V.noSacrifice = function () { return withRules({ sacrifice: { enabled: false, pieces: [] } }); };
-V.noPowerCap = function () { return withRules({}, { powerCap: null }); };
-V.noDistance = function () { return withRules({}, { minKingDistance: null }); };
+V.ownSacrificesPower = function () { return withRules({}, { ownSacrificesPower: true }); };
+// the current rules, but the amazon only from 12 behind (king + knight + bishop for 5-11)
+V.amazon12 = function () {
+  return withRules({}, { tiers: [
+    { minDeficit: 12, movement: 'amazon' }, { minDeficit: 5, movement: 'cardinal' },
+    { minDeficit: 3, movement: 'choice', options: ['centaur', 'dragonHorse'] }, { minDeficit: -Infinity, movement: 'king' }] });
+};
+// the envoy rules before the Oct 2026 change: power capped by your own strength, non-nested tiers
+V.previous = function () {
+  return withRules({}, { powerCap: 1, ownSacrificesPower: true, tiers: [
+    { minDeficit: 12, movement: 'amazon' }, { minDeficit: 9, movement: 'queen' }, { minDeficit: 5, movement: 'dragonKing' },
+    { minDeficit: 3, movement: 'choice', options: ['centaur', 'dragonHorse'] }, { minDeficit: -Infinity, movement: 'king' }] });
+};
+V.distance3 = function () { return withRules({}, { minKingDistance: 3 }); };   // the old diplomatic distance
+V.noFreeze = function () { return withRules({ sacrifice: { enabled: true, pieces: ['p', 'n', 'b', 'r', 'q'], freezeEnemyEnvoy: 0 } }); };
 V.noCheck = function () { return withRules({}, { givesCheck: false }); };
 V.cooldown = function () { return withRules({}, { cooldownTurns: 1 }); };
-// these rules with the envoy allowed one square closer (not next to the king, as in v4)
+// these rules with the envoy kept off the squares next to the enemy king
 V.distance2 = function () { return withRules({}, { minKingDistance: 2 }); };
 // these rules, but the envoy starts on the bishop's square (c1 / c8) instead of being placed
 V.bishopSquare = function () {

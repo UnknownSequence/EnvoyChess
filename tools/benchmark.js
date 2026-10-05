@@ -14,6 +14,8 @@
  *                       players: d1..d4 = normal bot searching 1..4 moves deep
  *                                rush1..rush4 = bot that sacrifices material and
  *                                marches its envoy at the enemy king
+ *                                soft1..soft4 / sac1..sac4 = normal search, but material
+ *                                counts only 1/2 or 1/4, so it sacrifices readily
  *    --pairs N          openings per matchup; each opening is played twice
  *                       with colours swapped                 (default 10)
  *    --jobs N           games in parallel (CPU cores)        (default 2)
@@ -47,7 +49,19 @@ function playTask(t) {
   RUSH.CONFIG.pieceScale = -60;
   RUSH.CONFIG.envoyNearKingBonus = 70;
   RUSH.CONFIG.mopUpEdge = 0; RUSH.CONFIG.mopUpKing = 0;
-  function pick(name) { return name.indexOf('rush') === 0 ? { bot: RUSH, level: 'd' + name.slice(4) } : { bot: AI, level: name }; }
+  // "soft" / "sac" bots search normally but value material at 1/2 or 1/4, so they sacrifice much more readily
+  var SOFT = AImod.create(E), SAC = AImod.create(E);
+  [SOFT, SAC].forEach(function (bot) {
+    [1, 2, 3, 4].forEach(function (d) { bot.CONFIG.levels['d' + d] = { depth: d, timeMs: 1e9, noise: 15, qDepth: 4 }; });
+  });
+  SOFT.CONFIG.pieceScale = 50; SAC.CONFIG.pieceScale = 25;
+  function pick(name) {
+    if (name.indexOf('rush') === 0) return { bot: RUSH, level: 'd' + name.slice(4) };
+    if (name.indexOf('soft') === 0) return { bot: SOFT, level: 'd' + name.slice(4) };
+    if (name.indexOf('sac') === 0) return { bot: SAC, level: 'd' + name.slice(3) };
+    return { bot: AI, level: name };
+  }
+  var sacPts = { w: 0, b: 0 };
   // random 2-ply opening shared by both games of the pair
   var g0 = new E.Game(), op = [];
   for (var k = 0; k < 2; k++) {
@@ -63,6 +77,7 @@ function playTask(t) {
     g.states.forEach(function (x) { seen[E.positionKey(x)] = 1; });
     var who = st.turn === 'w' ? pw : pb;
     var mv = g.move(who.bot.chooseMove(st, who.level, seen));
+    if (mv.sacrifice) sacPts[mv.piece[0]] += E.rules.pieceValues[mv.piece[1]] || 0;
     if (mv.piece[1] === 'e') {
       if (mv.captured) envoyCaps[mv.piece[0]]++;
       if (/[+#]$/.test(mv.san)) envoyChecks[mv.piece[0]]++;
@@ -80,7 +95,7 @@ function playTask(t) {
     envoyMate: s.reason === 'checkmate' && last.piece[1] === 'e',
     finalLead: lead[lead.length - 1] || 0,
     maxW: Math.max.apply(null, [0].concat(lead)), maxB: Math.max.apply(null, [0].concat(lead.map(function (x) { return -x; }))),
-    envoyCaps: envoyCaps, envoyChecks: envoyChecks, firstLead3: firstLead3, ms: Date.now() - start
+    envoyCaps: envoyCaps, sacPts: sacPts, envoyChecks: envoyChecks, firstLead3: firstLead3, ms: Date.now() - start
   };
 }
 
