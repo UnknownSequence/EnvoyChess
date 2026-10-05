@@ -786,35 +786,36 @@
       '<p>You are <b>behind</b> by (opponent\'s strength − your strength). Both sides start at ' + E.strength(start, 'w') + '.</p>' +
       '<h3>The envoy</h3><ul>' +
       (ev.capturable === 'whenArmed'
-        ? '<li><b>Diplomatic immunity:</b> while its side is <i>not</i> behind, the envoy cannot be captured (and cannot capture). As soon as its side is behind enough to capture, it loses its immunity and can be captured like any piece (it is worth 0 strength, so capturing it does not change the balance).</li>'
+        ? '<li><b>Diplomatic immunity:</b> while its side is <i>not</i> behind, the envoy cannot be captured (and cannot capture). Once its side is behind enough to capture, it can also be captured like any piece.</li>'
         : ev.capturable ? '<li>The envoy can be captured like any other piece (it is worth 0 strength).</li>'
-        : '<li>The envoy <b>can never be captured</b> (not even by the other envoy).</li>') +
-      '<li>It may capture enemy pieces <b>only while its side is behind by ' + ev.captureMinDeficit + ' or more</b>' +
-      (ev.captureMinDeficit === 1 ? ' (i.e. while it represents the weaker side)' : '') + '.</li>' +
+        : '<li><b>Diplomatic immunity:</b> the envoy can never be captured, not even by the other envoy.</li>') +
+      (ev.minKingDistance ? '<li><b>Diplomatic distance:</b> the envoy may never move onto a square ' +
+        (ev.minKingDistance === 2 ? '<b>next to the enemy king</b> (one square away in any direction, including diagonally)'
+          : 'within ' + (ev.minKingDistance - 1) + ' squares of the enemy king') +
+        '. It can still attack the king from further away.</li>' : '') +
+      '<li>It may capture enemy pieces <b>only while its side is behind</b>' +
+      (ev.captureMinDeficit === 1 ? ' (has less strength than the opponent)' : ' by ' + ev.captureMinDeficit + ' or more') + '.</li>' +
       (ev.givesCheck === 'whenArmed'
-        ? '<li>It gives check only while it is allowed to capture; a peaceful envoy never attacks the king.</li>'
-        : ev.givesCheck ? '<li>It <b>always gives check</b>: a king may never stand on a square the enemy envoy covers, even when that envoy is not allowed to capture.' +
-          (ev.capturable ? '' : ' Because it cannot be captured, a check from the envoy must be answered by moving the king or blocking.') + '</li>' : '') +
+        ? '<li>It may give check only while it is allowed to capture.</li>'
+        : ev.givesCheck ? '<li>It <b>is allowed to give check</b>, even while it is not allowed to capture: a king may not move onto a square the enemy envoy attacks.' +
+          (ev.capturable ? '' : ' Because the envoy cannot be captured, a check from it must be answered by moving the king or blocking.') + '</li>' : '') +
       (cd > 0 ? '<li><b>Cooldown:</b> after the envoy moves, it must sit out your next ' + (cd === 1 ? 'turn' : cd + ' turns') +
-        (ev.cooldownResetOnOpponentCapture ? ' — <i>unless</i> your opponent captures one of your pieces in between, which makes it ready again at once' : '') + '.</li>' : '') +
+        (ev.cooldownResetOnOpponentCapture ? ', <i>unless</i> your opponent captures one of your pieces in between, which makes it ready again at once' : '') + '.</li>' : '') +
       '<li>How it moves depends on how far behind its side is:</li></ul>' +
       '<table><tr><th>Behind by</th><th>Envoy moves like</th></tr>' + tierRows + '</table>' +
       '<p class="note">Amazon = queen + knight. Being ahead or equal counts as "behind by 0 or less".</p>' +
+      (ev.powerCap != null ? '<p><b>Counting "behind by" for the envoy:</b> the gap can count for at most ' +
+        (ev.powerCap === 1 ? 'your own remaining strength' : ev.powerCap + ' times your own remaining strength') +
+        '. Example: your pieces add up to 3 and you are 20 behind; your envoy moves as if you were only 3 behind (knight or bishop). This stops a player from giving away all their pieces to get a huge envoy. (Capturing still only needs your side to be behind.)</p>' : '') +
       (tiers.some(function (t) { return t.movement === 'choice'; }) ?
         (ev.chooseBy === 'move'
-          ? '<p><b>Choosing:</b> in a range with two options there is nothing to declare. Until it moves, the envoy may move like <i>either</i> option; its first move in that range (a knight jump or a diagonal slide) fixes that movement for as long as your side stays in the range. Moving other pieces fixes nothing. If you leave the range and come back later, the envoy may choose again. ' +
-            (ev.undeclaredCheckPattern === 'union' ? 'Until it has chosen, the envoy gives check along <i>all</i> of the options.' : '') + '</p>'
+          ? '<p><b>Knight or bishop:</b> there is nothing to declare. Until it moves, the envoy may move like <i>either</i> one; its first move in that range (a knight jump or a diagonal slide) fixes that movement for as long as your side stays in the range. Moving other pieces fixes nothing. If you leave the range and come back later, the envoy may choose again. ' +
+            (ev.undeclaredCheckPattern === 'union' ? 'Until it has chosen, it gives check like both a knight and a bishop.' : '') + '</p>'
           : '<p><b>Declaring:</b> on the first turn your side is in a "declare" range, you choose one of the options before moving. ' +
             'You may then move the envoy or any other piece. The choice stays until your side leaves that range; if you come back later you declare again. ' +
             (ev.undeclaredCheckPattern === 'union' ? 'Until the owner has declared, that envoy gives check along <i>all</i> of the options.' : '') + '</p>') : '') +
       '<p>Pawns promote to ' + R.promotionPieces.map(function (t) { return R.pieceNames[t].toLowerCase(); }).join(', ') +
-      ' — <b>never</b> to an envoy.</p>' +
-      (ev.powerCap != null ? '<h3>The envoy needs an army</h3><p>The deficit that powers the envoy counts at most <b>' +
-        (ev.powerCap === 1 ? 'your own remaining strength' : ev.powerCap + ' × your own remaining strength') +
-        '</b>. Example: with 3 points left while 30 behind, your envoy acts as if you were only 3 behind. Throwing away pieces to build a monster envoy does not work.</p>' : '') +
-      (ev.minKingDistance ? '<h3>Diplomatic distance</h3><p>The envoy may never move onto a square ' +
-        (ev.minKingDistance === 2 ? 'next to' : 'within ' + (ev.minKingDistance - 1) + ' squares of') +
-        ' the enemy king. (The enemy king still may not step into the envoy\'s check.)</p>' : '') +
+      ', <b>never</b> to an envoy.</p>' +
       (R.forcedCapture === 'upward' ? '<h3>Compulsory captures (weaker takes stronger)</h3><p>A capture is compulsory only when one of your pieces can take a <b>more valuable</b> enemy piece (for example pawn takes knight, knight or bishop takes rook, rook takes queen). Then you must make one such capture, but you choose which. Equal trades and captures of cheaper pieces stay optional. ' +
           (R.forcedCaptureExempt && R.forcedCaptureExempt.length ? 'Captures by the ' + R.forcedCaptureExempt.map(function (t) { return R.pieceNames[t].toLowerCase(); }).join(' and ') + ' are never compulsory. ' : '') +
           'Not while your king is in check: then any legal move that answers the check is allowed.</p>'
