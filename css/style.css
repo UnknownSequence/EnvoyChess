@@ -269,8 +269,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .result-box { border-top: 1px solid var(--border); padding: 10px 12px; text-align: center; }
 .result-box .score { font-size: 18px; color: var(--text-strong); font-weight: 600; }
 .result-box .why { color: var(--muted); font-size: 13px; margin: 2px 0 8px; }
-.actions { display: flex; border-top: 1px solid var(--border); }
-.actions button { flex: 1; background: none; border: 0; padding: 9px 2px; font-size: 12.5px; color: var(--text); white-space: nowrap; }
+.actions { display: flex; flex-wrap: wrap; border-top: 1px solid var(--border); }
+.actions button { flex: 1 1 auto; background: none; border: 0; padding: 9px 2px; font-size: 12.5px; color: var(--text); white-space: nowrap; }
 .actions button:hover:not(:disabled) { background: var(--panel-2); color: var(--text-strong); }
 .actions button:disabled { opacity: .35; cursor: default; }
 .actions button.confirm { background: var(--bad); color: #fff; }
@@ -317,3 +317,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .paste-error { color: #ff7b7b; font-size: 12.5px; margin-right: auto; }
 .share-help { margin: 0 0 12px; font-size: 13.5px; }
 .share-status { color: var(--muted); font-size: 12.5px; margin-right: auto; align-self: center; }
+
+.legend-intro { margin: 0 0 8px; font-size: 12.5px; color: var(--text); }
+.legend li > span:last-child { min-width: 0; }
