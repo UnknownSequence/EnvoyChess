@@ -43,9 +43,11 @@
 
       <section class="panel legend-panel">
         <h3>Envoy badge</h3>
+        <p class="legend-intro">The small circle on each envoy shows how that envoy can move right now. It changes whenever the strength gap changes.</p>
         <ul class="legend">
-          <li><span class="envoy-badge demo">K</span> current movement (K, N, B, R, Q, A = amazon, ? = knight or bishop, its first move decides)</li>
-          <li><span class="envoy-badge demo can-capture">R</span> red: allowed to capture</li>
+          <li><span class="envoy-badge demo">K</span> <span><b>Letter = how it moves:</b> K king, N knight, B bishop, R rook, Q queen, A amazon (queen + knight).</span></li>
+          <li><span class="envoy-badge demo pending">?</span> <span><b>Orange ?</b> = 3–4 behind and not chosen yet: it may move like a knight or a bishop, and its first move decides.</span></li>
+          <li><span class="envoy-badge demo can-capture">R</span> <span><b>Red</b> = its side is behind, so it may capture enemy pieces. Dark = it may not capture.</span></li>
         </ul>
       </section>
     </aside>

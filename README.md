@@ -31,9 +31,10 @@ The rules are normal chess, with these changes.
 
 **The envoy**
 
-* It can never be captured.
+* **Diplomatic immunity:** it can never be captured.
+* **Diplomatic distance:** it may never move onto a square next to the enemy king (one square away in any direction, including diagonally). It can still attack the king from further away.
 * It may capture only while its side is behind.
-* It gives check, and a king may never step next to it.
+* It is allowed to give check, even while it may not capture, so a king may not move onto a square the enemy envoy attacks.
 * It may move every turn (there is no cooldown).
 * How it moves depends on how far behind its side is:
 
@@ -45,8 +46,9 @@ The rules are normal chess, with these changes.
   | 3–4 | Knight **or** bishop. Its first move in this range decides, and it keeps that movement while the gap stays in the range. |
   | 2 or less | King |
 
-* **The envoy needs an army.** Its power counts at most your own remaining strength, so throwing pieces away does not build a monster envoy.
-* **Diplomatic distance.** The envoy may never move onto a square next to the enemy king.
+  For this table, the gap counts for at most your own remaining strength.
+  For example, if your pieces add up to 3 and you are 20 behind, your envoy moves as if you were 3 behind.
+  This stops a player from giving away every piece to get a huge envoy.
 
 **Compulsory captures (weaker takes stronger).** If one of your pieces can capture a more valuable enemy piece (pawn takes knight, knight takes rook, and so on), you must make such a capture, but you choose which one.
 Equal trades and captures of cheaper pieces stay optional.
