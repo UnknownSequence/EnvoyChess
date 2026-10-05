@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Envoy Chess</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="logo" href="#" id="logo"><span class="logo-mark"></span>Envoy<span class="logo-tld">Chess</span></a>
+    <nav class="top-nav">
+      <button class="nav-btn" id="btn-new">New game</button>
+      <button class="nav-btn" id="btn-rules">Rules</button>
+      <button class="nav-btn icon" id="btn-sound" title="Sound on/off"></button>
+    </nav>
+  </header>
+
+  <main class="round">
+    <!-- LEFT: game info + envoy tier ladder -->
+    <aside class="round-side">
+      <section class="panel game-meta">
+        <div class="meta-head">
+          <span class="meta-icon"></span>
+          <div>
+            <div class="meta-title" id="meta-title">Envoy Chess</div>
+            <div class="meta-sub" id="meta-sub">Casual · Two players</div>
+          </div>
+        </div>
+        <div class="meta-status" id="meta-status">White to move</div>
+      </section>
+
+      <section class="panel ladder-panel">
+        <h3>Strength &amp; envoy power</h3>
+        <div class="strength-bar">
+          <div class="sb-label"><span>White</span><b id="str-w">36</b></div>
+          <div class="sb-track"><div class="sb-fill" id="sb-fill"></div></div>
+          <div class="sb-label right"><b id="str-b">36</b><span>Black</span></div>
+        </div>
+        <table class="ladder" id="ladder"></table>
+        <p class="ladder-note">“Behind” = opponent's strength minus yours. A side that is behind at all may capture with its envoy.</p>
+      </section>
+
+      <section class="panel legend-panel">
+        <h3>Envoy badge</h3>
+        <ul class="legend">
+          <li><span class="envoy-badge demo">K</span> current movement (K, N, B, R, Q, A = amazon, ? = knight or bishop, its first move decides)</li>
+          <li><span class="envoy-badge demo can-capture">R</span> red: allowed to capture</li>
+        </ul>
+      </section>
+    </aside>
+
+    <!-- CENTRE: the board -->
+    <div class="board-col">
+      <div class="board-wrap">
+        <div class="board" id="board">
+          <div class="squares" id="squares"></div>
+          <div class="pieces" id="pieces"></div>
+          <div class="board-overlay hidden" id="decl-overlay"></div>
+          <div class="promo hidden" id="promo"></div>
+        </div>
+        <div class="toasts" id="toasts"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: players, move list, controls -->
+    <aside class="round-tools">
+      <div class="player top" id="player-top"></div>
+      <div class="panel moves-panel">
+        <div class="moves-nav">
+          <button data-nav="first" title="First move (Home)">&#x23EE;&#xFE0E;</button>
+          <button data-nav="prev" title="Previous move (←)">&#x25C0;&#xFE0E;</button>
+          <button data-nav="next" title="Next move (→)">&#x25B6;&#xFE0E;</button>
+          <button data-nav="last" title="Last move (End)">&#x23ED;&#xFE0E;</button>
+          <button data-nav="flip" title="Flip board (F)">&#x21C5;</button>
+        </div>
+        <div class="moves" id="moves"></div>
+        <div class="result-box hidden" id="result-box"></div>
+        <div class="actions" id="actions">
+          <button id="btn-takeback" title="Take back">&#x21B6; Takeback</button>
+          <button id="btn-draw" title="Agree to a draw">½ Draw</button>
+          <button id="btn-resign" title="Resign">&#x2691; Resign</button>
+          <button id="btn-sac" title="Remove one of your own pieces instead of moving (S)">&#x2620;&#xFE0E; Sacrifice</button>
+          <button id="btn-pgn" title="Send this game to a friend (e.g. on WhatsApp)">&#x21AA; Send</button>
+        </div>
+      </div>
+      <div class="player bottom" id="player-bottom"></div>
+    </aside>
+  </main>
+
+  <!-- Dialogs -->
+  <div class="modal hidden" id="modal-new">
+    <div class="modal-box">
+      <h2>New game</h2>
+      <div class="field">
+        <label>Opponent</label>
+        <div class="seg" data-name="mode">
+          <button data-value="local">Friend (same device)</button>
+          <button data-value="ai">Computer</button>
+        </div>
+      </div>
+      <div class="field ai-only">
+        <label>Play as</label>
+        <div class="seg" data-name="side">
+          <button data-value="w">White</button>
+          <button data-value="random">Random</button>
+          <button data-value="b">Black</button>
+        </div>
+      </div>
+      <div class="field ai-only">
+        <label>Computer level</label>
+        <div class="seg" data-name="level">
+          <button data-value="1">1 · Easy</button>
+          <button data-value="2">2 · Medium</button>
+          <button data-value="3">3 · Hard</button>
+          <button data-value="4" id="level-trained" title="Hard search + the trained neural network">4 · Trained</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" data-close>Cancel</button>
+        <button class="btn-primary" id="btn-start">Start game</button>
+      </div>
+      <div class="field continue-field">
+        <label for="paste-pgn">Continue a game a friend sent you</label>
+        <textarea id="paste-pgn" rows="3" placeholder="Paste the game text from WhatsApp here"></textarea>
+        <div class="continue-row"><span class="paste-error" id="paste-error"></span><button class="btn-secondary" id="btn-load">Load game</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="modal-share">
+    <div class="modal-box">
+      <button class="modal-x" data-close>&times;</button>
+      <h2>Send this game</h2>
+      <p class="share-help">Paste this into WhatsApp. Your friend opens the game, taps <b>New game</b>, pastes it under <b>Continue a game</b>, makes a move and sends it back the same way.</p>
+      <textarea id="share-text" rows="7" readonly></textarea>
+      <div class="modal-actions">
+        <span class="share-status" id="share-status"></span>
+        <button class="btn-primary" id="btn-copy-share">Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="modal-rules">
+    <div class="modal-box wide">
+      <button class="modal-x" data-close>&times;</button>
+      <div id="rules-body"></div>
+    </div>
+  </div>
+
+  <!-- Scripts: rules first, then engine, art, computer opponent, interface. -->
+  <script src="js/rules.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/pieces.js"></script>
+  <script src="js/nn.js"></script>
+  <script src="js/nn-weights.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/ui.js"></script>
+</body>
+</html>
